@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Chat Intuitivo - Code-Partner</title>
+    <meta name="theme-color" content="#007bff"/>
+    <link rel="manifest" href="/manifest.json"> 
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        /* Estilos Base PWA */
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --bg-light: #f8f9fa;
+            --bg-chat-sent: #dcf8c6; /* Verde claro */
+            --bg-chat-received: #fff;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: var(--bg-light); }
+        h1, h2 { color: #333; margin-top: 0; }
+        
+        /* Contenedor Principal (Simula la ventana de la App) */
+        .app-container { width: 90%; max-width: 1000px; height: 90vh; background: #fff; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.1); display: flex; overflow: hidden; }
+
+        /* Estilos de Formulario (Login/Register) */
+        #auth-interface { width: 100%; max-width: 400px; padding: 40px; margin: auto; }
+        input, button { padding: 12px; margin-bottom: 15px; width: 100%; box-sizing: border-box; border-radius: 6px; border: 1px solid #ccc; font-size: 16px; }
+        button { cursor: pointer; background-color: var(--primary-color); color: white; border: none; transition: background-color 0.3s; }
+        button:hover { background-color: #0056b3; }
+        
+        /* Layout del Chat */
+        #chat-interface { width: 100%; display: flex; }
+        
+        /* Panel Izquierdo */
+        .user-list-panel { flex: 0 0 300px; background-color: #f0f0f0; border-right: 1px solid #ddd; padding: 20px 0; display: flex; flex-direction: column; }
+        .user-list-header { padding: 0 20px 15px; border-bottom: 1px solid #ddd; }
+        #connected-users-list { list-style: none; padding: 0; margin: 0; flex-grow: 1; overflow-y: auto; }
+        #connected-users-list li { padding: 10px 20px; cursor: pointer; border-bottom: 1px solid #eee; transition: background-color 0.2s; display: flex; justify-content: space-between; align-items: center; }
+        #connected-users-list li:hover, #connected-users-list li.selected { background-color: #e0e0e0; }
+        .user-status { font-size: 10px; color: green; }
+
+        /* Panel Derecho */
+        .chat-panel { flex: 1; display: flex; flex-direction: column; }
+        .chat-header { background-color: var(--bg-light); padding: 15px 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .chat-header h3 { margin: 0; color: var(--primary-color); }
+        
+        /* Contenedor de Mensajes */
+        #chat-messages { flex-grow: 1; padding: 20px; overflow-y: auto; background-color: #f5f5f5; display: flex; flex-direction: column; }
+        
+        /* Mensajes - Estilo Globo */
+        .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 18px; max-width: 75%; position: relative; }
+        .message.sent { align-self: flex-end; background-color: var(--primary-color); color: white; border-bottom-right-radius: 2px; }
+        .message.received { align-self: flex-start; background-color: var(--bg-chat-received); color: #333; border-bottom-left-radius: 2px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+        .message-info { font-size: 10px; opacity: 0.7; margin-top: 3px; display: block; }
+        .message.sent .message-info { color: #fff; }
+
+        /* Input y Envío */
+        .chat-input-area { padding: 10px 20px; border-top: 1px solid #ddd; display: flex; background-color: #fff; }
+        #message-input { flex-grow: 1; margin: 0; margin-right: 10px; }
+        .send-button { width: 100px; margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        
+        <section id="auth-interface" style="display: none;">
+            <h1>Iniciar Sesión / Registro 💬</h1>
+            <p id="auth-output" style="text-align: center; font-size: 14px; margin-bottom: 20px;">Esperando acción...</p>
+            <input type="text" id="name" placeholder="Tu Nombre (Solo Registro)">
+            <input type="email" id="email" placeholder="Email">
+            <input type="password" id="password" placeholder="Contraseña">
+            <button onclick="loginUser()">Iniciar Sesión</button>
+            <button onclick="registerUser()" style="background-color: var(--secondary-color);">Registrarse</button>
+        </section>
+
+        <section id="chat-interface" style="display: none;">
+            
+            <div class="user-list-panel">
+                <div class="user-list-header">
+                    <h2>Contactos</h2>
+                    <p style="font-size: 12px; margin: 5px 0 0;">Tu ID: <strong id="current-user-id">Cargando...</strong></p>
+                    <div id="socket-status" style="font-size: 12px; margin-top: 5px;"></div>
+                    <button onclick="connectChat()" style="width: auto; padding: 5px 10px; font-size: 12px; margin-top: 10px;">Reconectar Chat</button>
+                </div>
+                
+                <ul id="connected-users-list">
+                    </ul>
+                <button onclick="logout()" style="background-color: #dc3545; border-radius: 0;">Cerrar Sesión</button>
+            </div>
+
+            <div class="chat-panel">
+                <div class="chat-header">
+                    <h3 id="recipient-name-display">Selecciona un Contacto</h3>
+                    <div style="font-size: 12px;">ID: <span id="recipientId-display">N/A</span></div>
+                </div>
+                
+                <div id="chat-messages">
+                    <p style="text-align: center; color: #999;">Selecciona un usuario a la izquierda para comenzar a chatear.</p>
+                </div>
+
+                <div class="chat-input-area">
+                    <input type="text" id="message-input" placeholder="Escribe tu mensaje..." disabled>
+                    <button onclick="sendMessage()" class="send-button" disabled>Enviar</button>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
