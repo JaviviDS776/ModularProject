@@ -1,5 +1,5 @@
 // public/app.js
-const BACKEND_URL = 'http://192.168.0.102:5000'; 
+const BACKEND_URL = 'http://localhost:5000'; 
 let currentToken = localStorage.getItem('jwtToken') || ''; 
 let currentUserId = ''; 
 let socket = null;
