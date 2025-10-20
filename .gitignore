@@ -1,0 +1,43 @@
+# .gitignore
+
+# ----------------------------------------------------------------------
+# 1. DEPENDENCIAS (Módulos instalados)
+# ----------------------------------------------------------------------
+/node_modules
+/npm-debug.log
+/yarn-error.log
+/package-lock.json
+
+# ----------------------------------------------------------------------
+# 2. ARCHIVOS DE ENTORNO Y SECRETOS (¡CRÍTICO PARA SEGURIDAD!)
+# ----------------------------------------------------------------------
+# Excluir el archivo que contiene la URI de MongoDB, JWT_SECRET, 
+# y la CRYPTO_SECRET. NUNCA debe ir a Git.
+.env
+.env.local
+.env.development
+.env.production
+
+# ----------------------------------------------------------------------
+# 3. LOGS, CACHÉ y TEMPORALES
+# ----------------------------------------------------------------------
+# Logs de Node
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+# Logs del sistema operativo
+.DS_Store
+Thumbs.db
+
+# ----------------------------------------------------------------------
+# 4. NODEMON
+# ----------------------------------------------------------------------
+# Archivos de sesión de Nodemon (si se usan)
+.nodemon-log
+
+# ----------------------------------------------------------------------
+# 5. BUILD/DIST (Aunque tu frontend es simple, prepara el futuro)
+# ----------------------------------------------------------------------
+/dist
+/build
