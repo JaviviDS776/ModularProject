@@ -1,13 +1,9 @@
 // controllers/chatHistoryController.js
 const Message = require('../models/Message');
-const { decrypt } = require('../utils/cryptoUtils'); // 🚨 Importar DESCIFRADO
+const { decrypt } = require('../utils/cryptoUtils');
 
-/**
- * @route GET /api/chat/history/:recipientId
- * @desc Obtiene el historial de mensajes cifrados entre dos usuarios y los descifra.
- */
 exports.getChatHistory = async (req, res) => {
-    const user1Id = req.user.id; // ID del usuario autenticado
+    const user1Id = req.user.id; 
     const user2Id = req.params.recipientId;
 
     try {
@@ -20,7 +16,6 @@ exports.getChatHistory = async (req, res) => {
         .sort({ timestamp: 1 }) 
         .lean(); 
 
-        // 🚨 DESCIFRAR TODOS LOS MENSAJES
         const decryptedMessages = messages.map(msg => {
             try {
                 const decryptedContent = decrypt(msg.content);
@@ -28,8 +23,9 @@ exports.getChatHistory = async (req, res) => {
                 return {
                     id: msg._id,
                     senderId: msg.sender,
-                    message: decryptedContent, // Contenido descifrado
+                    message: decryptedContent, 
                     timestamp: msg.createdAt,
+                    productId: msg.productId || null,
                 };
             } catch (e) {
                 console.error(`Error al descifrar el mensaje ${msg._id}:`, e);

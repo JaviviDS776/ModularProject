@@ -7,8 +7,8 @@ const IV_LENGTH = 16;
 if (!CRYPTO_SECRET || CRYPTO_SECRET.length !== 64) {
     // Es vital que la clave sea de 32 bytes (64 chars hex) y esté definida
     console.error("❌ ERROR: CRYPTO_SECRET no está definida o no tiene 64 caracteres Hex.");
-    // Usar una clave dummy (NO USAR EN PRODUCCIÓN)
-    // process.exit(1); 
+    console.error("❌ La aplicación no puede funcionar sin una clave de cifrado válida.");
+    process.exit(1);
 }
 
 /**

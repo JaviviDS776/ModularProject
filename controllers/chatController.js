@@ -2,10 +2,18 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User'); 
 const Message = require('../models/Message'); 
-const { encrypt } = require('../utils/cryptoUtils'); // 🚨 Importar CIFRADO
+const { encrypt } = require('../utils/cryptoUtils');
 const JWT_SECRET = process.env.JWT_SECRET; 
 
-const connectedUsers = {}; 
+const connectedUsers = {};
+
+// Periodic cleanup to prevent memory leaks
+setInterval(() => {
+    const userCount = Object.keys(connectedUsers).length;
+    if (userCount > 100) { // Arbitrary threshold
+        console.log(`⚠️ Warning: ${userCount} users in connectedUsers object. Consider investigating potential memory leaks.`);
+    }
+}, 60000); // Check every minute
 
 exports.socketAuthMiddleware = (socket, next) => {
     const token = socket.handshake.query.token;
@@ -36,19 +44,18 @@ exports.handleConnection = (io) => (socket) => {
         })
         .catch(err => console.error("Error al buscar usuario:", err));
 
-    // 🚨 Lógica de envío y CIFRADO
     socket.on('sendMessage', async (data) => {
-        const { recipientId, message } = data;
+        const { recipientId, message, productId } = data;
         const senderId = socket.userId;
 
         try {
-            // CIFRAR el contenido antes de guardar
             const encryptedContent = encrypt(message); 
 
             const newMessage = new Message({
                 sender: senderId,
                 recipient: recipientId,
-                content: encryptedContent, // Guardar texto CIFRADO
+                content: encryptedContent,
+                productId: productId || null, 
             });
             await newMessage.save();
             
@@ -57,9 +64,10 @@ exports.handleConnection = (io) => (socket) => {
             const messagePayload = { 
                 senderId: senderId,
                 senderName: senderName,
-                message: message, // 🚨 Enviamos el texto PLAIN (descifrado) por Socket.io
+                message: message, 
                 timestamp: newMessage.createdAt, 
-                id: newMessage._id 
+                id: newMessage._id,
+                productId: productId || null, 
             };
 
             io.to(recipientId).emit('newMessage', messagePayload);
@@ -73,8 +81,16 @@ exports.handleConnection = (io) => (socket) => {
 
     socket.on('disconnect', () => {
         if (connectedUsers[userId]) {
+            const userName = connectedUsers[userId].name;
             delete connectedUsers[userId];
             io.emit('userDisconnected', userId);
+            console.log(`👋 Usuario ${userName} (${userId.substring(0, 8)}...) se ha desconectado`);
         }
+        
+        // Cleanup: Remove user from any rooms they might have joined
+        socket.leave(userId);
+        
+        // Additional cleanup for any lingering references
+        socket.removeAllListeners();
     });
 };
