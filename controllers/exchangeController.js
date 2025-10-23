@@ -33,7 +33,7 @@ exports.proposeExchange = async (req, res) => {
         let exchange = await Exchange.findOne({ 
             product: productId, 
             interestedParty: interestedPartyId, 
-            status: { $in: ['PENDING', 'ACCEPTED'] }
+            status: { $in: ['PENDING'] }
         });
 
         if (exchange) {
@@ -74,12 +74,15 @@ exports.acceptExchange = async (req, res) => {
         if (!exchange) { return res.status(404).json({ msg: 'Propuesta pendiente no encontrada.' }); }
         if (exchange.owner.toString() !== currentUserId) { return res.status(401).json({ msg: 'Solo el dueño del producto puede aceptar.' }); }
         
-        exchange.status = 'ACCEPTED';
+        exchange.status = 'COMPLETED';
+        exchange.completedAt = new Date();
         await exchange.save();
         
-        await Product.findByIdAndUpdate(productId, { isActive: false });
+        // Marcar AMBOS productos como completados
+        await Product.findByIdAndUpdate(productId, { exchangeStatus: 'COMPLETED', isActive: false });
+        await Product.findByIdAndUpdate(exchange.offeredProduct, { exchangeStatus: 'COMPLETED', isActive: false });
 
-        res.json({ msg: 'Propuesta aceptada. Intercambio PENDIENTE de finalizar.', exchange });
+        res.json({ msg: '¡Intercambio completado con éxito!', exchange });
 
     } catch (err) {
         console.error('Error al aceptar intercambio:', err.message);
@@ -116,62 +119,16 @@ exports.rejectExchange = async (req, res) => {
 };
 
 
-// @route PUT /api/exchanges/:productId/:interestedPartyId/complete
-exports.completeExchange = async (req, res) => {
-    const { productId, interestedPartyId } = req.params;
-    
-    try {
-        const exchange = await Exchange.findOne({
-            product: productId,
-            interestedParty: interestedPartyId,
-            status: 'ACCEPTED' 
-        });
-
-        if (!exchange) { return res.status(404).json({ msg: 'El intercambio no está en estado ACEPTADO.' }); }
-        
-        const currentUserId = req.user.id;
-        const isOwner = exchange.owner.toString() === currentUserId;
-        const isInterested = exchange.interestedParty.toString() === currentUserId;
-
-        if (!isOwner && !isInterested) { return res.status(401).json({ msg: 'No eres parte de este intercambio.' }); }
-
-        exchange.status = 'COMPLETED';
-        exchange.completedAt = new Date();
-        await exchange.save();
-
-        // Mark both products as completed and inactive
-        await Product.findByIdAndUpdate(productId, { exchangeStatus: 'COMPLETED', isActive: false });
-        await Product.findByIdAndUpdate(exchange.offeredProduct, { exchangeStatus: 'COMPLETED', isActive: false });
-
-        // Get product details for response
-        const mainProduct = await Product.findById(productId).populate('owner', 'name');
-        const offeredProduct = await Product.findById(exchange.offeredProduct).populate('owner', 'name');
-
-        res.json({ 
-            msg: `Intercambio CONCRETADO: "${mainProduct.title}" por "${offeredProduct.title}". Ambos productos han sido eliminados del feed.`, 
-            exchange,
-            completedProducts: {
-                main: mainProduct.title,
-                offered: offeredProduct.title
-            }
-        });
-
-    } catch (err) {
-        console.error('Error al completar intercambio:', err.message);
-        res.status(500).send('Error del servidor');
-    }
-};
-
-
 // @route GET /api/exchanges/status/:productId/:interestedPartyId
 exports.getExchangeStatus = async (req, res) => {
     const { productId, interestedPartyId } = req.params;
     
     try {
+        // ... (Verificación de existencia y población) ...
         const exchange = await Exchange.findOne({
             product: productId,
             interestedParty: interestedPartyId,
-            status: { $in: ['PENDING', 'ACCEPTED', 'REJECTED', 'COMPLETED'] }
+            status: { $in: ['PENDING', 'REJECTED', 'COMPLETED'] }
         }).sort({ createdAt: -1 }).populate('offeredProduct', 'title imageUrl'); 
 
         if (!exchange) {
@@ -195,7 +152,7 @@ exports.getProfileExchanges = async (req, res) => {
                 { owner: currentUserId },
                 { interestedParty: currentUserId }
             ],
-            status: { $in: ['PENDING', 'ACCEPTED', 'REJECTED', 'COMPLETED'] }
+            status: { $in: ['PENDING', 'REJECTED', 'COMPLETED'] }
         })
         .sort({ createdAt: -1 })
         .populate('product', 'title imageUrl')

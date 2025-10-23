@@ -3,18 +3,7 @@ const express = require('express');
 const http = require('http');
 const socketio = require('socket.io');
 const path = require('path');
-require('dotenv').config({ path: './.env' });
-
-// Validate required environment variables
-const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'CRYPTO_SECRET'];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
-
-if (missingEnvVars.length > 0) {
-    console.error('❌ Missing required environment variables:');
-    missingEnvVars.forEach(envVar => console.error(`   - ${envVar}`));
-    console.error('Please check your .env file and ensure all required variables are set.');
-    process.exit(1);
-}
+require('dotenv').config({ path: './.env' }); 
 
 const connectDB = require('./config/db'); 
 const passport = require('passport'); 
@@ -30,17 +19,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketio(server, {
     cors: { 
-        origin: process.env.NODE_ENV === 'production' 
-            ? ["https://yourdomain.com"] 
-            : ["http://localhost:3000", "http://localhost:5000", "http://127.0.0.1:5000"], 
-        methods: ["GET", "POST", "PUT"],
-        credentials: true
+        origin: "*", 
+        methods: ["GET", "POST", "PUT"] 
     }
-});
+}); 
 
 connectDB();
 
 // --- 2. Middlewares ---
+// Esto permite a Express servir archivos estáticos (HTML, CSS, JS, e imágenes subidas)
 app.use(express.static(path.join(__dirname, 'public'))); 
 app.use(express.json()); 
 app.use(passport.initialize()); 

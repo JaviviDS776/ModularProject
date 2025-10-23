@@ -1,0 +1,83 @@
+
+/* Proposal Card Styles */
+.proposal-card {
+    border: 1px solid #007bff;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    background-color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.proposal-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+}
+.proposal-card-title {
+    margin: 0;
+    color: #333;
+}
+.proposal-card-status {
+    font-weight: bold;
+}
+.proposal-card-products {
+    margin-bottom: 10px;
+}
+.proposal-card-product-main, .proposal-card-product-offered {
+    margin: 0;
+    font-size: 14px;
+}
+.proposal-card-product-main {
+    font-weight: bold;
+}
+.proposal-card-product-offered {
+    color: #777;
+}
+.proposal-card-party {
+    font-size: 12px;
+    margin-bottom: 15px;
+}
+.proposal-card-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+.proposal-card-action-btn {
+    padding: 8px 12px;
+    width: 100%;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    color: white;
+}
+.proposal-card-action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+.proposal-card-accept-btn {
+    background-color: #28a745;
+}
+.proposal-card-accept-btn:hover {
+    background-color: #218838;
+}
+.proposal-card-reject-btn {
+    background-color: #dc3545;
+}
+.proposal-card-reject-btn:hover {
+    background-color: #c82333;
+}
+.proposal-card-complete-btn {
+    background-color: #007bff;
+}
+.proposal-card-complete-btn:hover {
+    background-color: #0056b3;
+}

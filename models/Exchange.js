@@ -5,12 +5,11 @@ const ExchangeSchema = new mongoose.Schema({
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     interestedParty: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    
     offeredProduct: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     
     status: {
         type: String,
-        enum: ['PENDING', 'ACCEPTED', 'REJECTED', 'COMPLETED'],
+        enum: ['PENDING', 'REJECTED', 'COMPLETED'],
         default: 'PENDING'
     },
     
@@ -21,4 +20,4 @@ const ExchangeSchema = new mongoose.Schema({
 
 ExchangeSchema.index({ product: 1, interestedParty: 1 }, { unique: true, partialFilterExpression: { status: 'PENDING' } });
 
-module.exports = mongoose.model('Exchange', ExchangeSchema);
+module.exports = mongoose.models.Exchange || mongoose.model('Exchange', ExchangeSchema);

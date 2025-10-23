@@ -9,20 +9,21 @@ let activeRecipientId = null;
 let conversationProductId = null; 
 let currentExchangeState = null; 
 let userOwnProducts = [];
+let unreadMessagesCount = {}; 
+let hasNewProposals = false;
 
 
 // --- 1. FUNCIONES DE UI Y UTILIDAD ---
 
-// Toast Notification System
 function showToast(message, type = 'info', duration = 5000) {
     const toastContainer = document.getElementById('toast-container');
     const toastId = 'toast-' + Date.now();
     
     const titles = {
-        success: '✅ Éxito',
-        error: '❌ Error', 
-        info: 'ℹ️ Información',
-        warning: '⚠️ Advertencia'
+        success: '<i class="fas fa-check-circle"></i> Éxito',
+        error: '<i class="fas fa-times-circle"></i> Error', 
+        info: '<i class="fas fa-info-circle"></i> Información',
+        warning: '<i class="fas fa-exclamation-triangle"></i> Advertencia'
     };
     
     const toast = document.createElement('div');
@@ -40,17 +41,14 @@ function showToast(message, type = 'info', duration = 5000) {
     
     toastContainer.appendChild(toast);
     
-    // Show toast with animation
     setTimeout(() => toast.classList.add('show'), 10);
     
-    // Animate progress bar
     const progressBar = toast.querySelector('.toast-progress');
     setTimeout(() => {
         progressBar.style.transition = `width ${duration}ms linear`;
         progressBar.style.width = '0%';
     }, 100);
     
-    // Auto remove
     setTimeout(() => closeToast(toastId), duration);
     
     return toastId;
@@ -111,6 +109,27 @@ function showNotification(senderName, messageContent) {
     }
 }
 
+function updateTabBadge(tabId) {
+    const tabButton = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
+    if (!tabButton) return;
+
+    let badge = tabButton.querySelector('.tab-notification-badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'tab-notification-badge';
+        tabButton.appendChild(badge);
+    }
+
+    if (tabId === 'contacts') {
+        const totalUnread = Object.values(unreadMessagesCount).reduce((sum, count) => sum + count, 0);
+        badge.textContent = totalUnread > 0 ? totalUnread : '';
+        badge.style.display = totalUnread > 0 ? 'inline-block' : 'none';
+    } else if (tabId === 'proposals') {
+        badge.textContent = hasNewProposals ? '!' : '';
+        badge.style.display = hasNewProposals ? 'inline-block' : 'none';
+    }
+}
+
 function switchTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -130,9 +149,27 @@ function switchTab(tabId) {
     }
 }
 
-// Legacy function - now uses toast notifications
 function showInAppMessage(message, isError = false, duration = 3000) {
-    showToast(message, isError ? 'error' : 'success', duration);
+    const modal = document.getElementById('post-modal');
+    const output = document.getElementById('post-output');
+    const formContent = document.getElementById('post-form-content');
+    
+    formContent.style.display = 'none'; 
+    document.getElementById('modal-title').textContent = isError ? 'Error' : 'Notificación';
+    
+    output.textContent = message;
+    output.style.color = isError ? 'red' : 'green';
+    
+    modal.style.display = 'block';
+    
+    if (isError || duration > 0) {
+         setTimeout(() => {
+             modal.style.display = 'none';
+             formContent.style.display = 'block'; 
+             output.textContent = ''; 
+             document.getElementById('modal-title').textContent = 'Nueva Publicación';
+         }, duration);
+    }
 }
 
 function openPostModal(isNewPost = true) {
@@ -159,7 +196,6 @@ function openPostModal(isNewPost = true) {
 function closePostModal() {
     document.getElementById('post-modal').style.display = 'none';
     
-    // Restaurar el contenido del formulario de publicación base
     document.getElementById('post-form-content').innerHTML = `
         <input type="text" id="post-title" placeholder="Título del Producto" required>
         <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
@@ -248,6 +284,7 @@ async function handleAuth(endpoint) {
             showInterface('chat-interface');
             await loadProductFeed();
             connectChat();
+            switchTab('feed');
         } else {
             updateAuthOutput(`❌ Error en ${endpoint.toUpperCase()}: ${data.msg || 'Error desconocido'}`, true);
             currentToken = '';
@@ -287,12 +324,7 @@ function logout() {
 
 async function loadProductFeed() {
     const feedDiv = document.getElementById('product-feed-list');
-    feedDiv.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px; color: #666;">
-            <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
-            <p style="margin: 0; font-size: 14px;">Cargando productos...</p>
-        </div>
-    `;
+    feedDiv.innerHTML = `<p style="text-align: center; color: #999; padding-top: 20px;">Cargando productos...</p>`;
 
     if (!currentToken) {
         feedDiv.innerHTML = `<p style="text-align: center; color: red; padding-top: 20px;">Error: Autenticación requerida.</p>`;
@@ -315,7 +347,7 @@ async function loadProductFeed() {
         
         userOwnProducts = products.filter(p => p.owner._id === currentUserId);
 
-        if (response.ok && products.length > 0) {
+        if (response.ok) {
             feedDiv.innerHTML = ''; 
             products.forEach(product => {
                 if (product.owner._id === currentUserId || product.exchangeStatus === 'ACTIVE') {
@@ -338,68 +370,34 @@ async function loadProductFeed() {
 
 function createProductCard(product) {
     const card = document.createElement('div');
-    card.className = 'product-card';
-    card.style.cssText = `
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 0;
-        margin-bottom: 20px;
-        background: linear-gradient(145deg, #ffffff, #f8f9fa);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
-        overflow: hidden;
-        position: relative;
-    `;
-    
-    // Add hover effect
-    card.onmouseenter = function() {
-        this.style.transform = 'translateY(-5px)';
-        this.style.boxShadow = '0 8px 25px rgba(0,0,0,0.15)';
-    };
-    card.onmouseleave = function() {
-        this.style.transform = 'translateY(0)';
-        this.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
-    };
+    card.style.border = '1px solid #ddd';
+    card.style.borderRadius = '6px';
+    card.style.padding = '15px';
+    card.style.marginBottom = '15px';
+    card.style.backgroundColor = '#fff';
     
     const imageUrl = product.imageUrl && product.imageUrl.startsWith('/') ? `${BACKEND_URL}${product.imageUrl}` : 'https://via.placeholder.com/300x150?text=Sin+Imagen';
 
     let actionButton;
-    let finalizeButton = '';
     const isOwner = product.owner._id === currentUserId;
-    const statusBadge = isOwner ? '📍 Tuyo' : '🔄 Disponible';
-    const statusColor = isOwner ? '#28a745' : '#007bff';
     
     if (isOwner && product.exchangeStatus === 'ACTIVE') {
-        finalizeButton = `<button onclick="finalizeExchange('${product._id}', '${product.title}')" class="finalize-btn" style="padding: 10px 15px; width: 100%; margin-top: 15px; background: linear-gradient(45deg, #dc3545, #c82333); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">💯 Finalizar Intercambio</button>`;
-        actionButton = `<div style="display: flex; align-items: center; justify-content: center; color: ${statusColor}; font-weight: bold; margin: 15px 0 5px; padding: 8px; background: rgba(40, 167, 69, 0.1); border-radius: 6px; font-size: 14px;"><span style="margin-right: 5px;">${statusBadge}</span></div>`;
+        actionButton = `<span style="display: block; text-align: center; color: var(--primary-color); font-weight: bold; margin-top: 10px;">¡Tu Publicación!</span>`;
     } else if (product.exchangeStatus === 'ACTIVE') {
-        actionButton = `
-            <div style="display: flex; align-items: center; justify-content: center; color: ${statusColor}; font-weight: bold; margin: 15px 0 10px; padding: 8px; background: rgba(0, 123, 255, 0.1); border-radius: 6px; font-size: 14px;"><span style="margin-right: 5px;">${statusBadge}</span></div>
-            <button onclick="handleChatInitiation('${product.owner._id}', '${product.owner.name}', '${product._id}')" style="padding: 10px 15px; width: 100%; background: linear-gradient(45deg, #ffc107, #e0a800); color: #333; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.3s ease;">💬 Chatear para Intercambio</button>
-        `;
+        actionButton = `<button onclick="handleChatInitiation('${product.owner._id}', '${product.owner.name}', '${product._id}')" style="padding: 8px; width: 100%; margin-top: 10px; background-color: #ffc107; color: #333; border: none; border-radius: 4px;">Chatear para Intercambio</button>`;
     } else {
-        actionButton = `<div style="display: flex; align-items: center; justify-content: center; color: #28a745; font-weight: bold; margin: 15px 0; padding: 8px; background: rgba(40, 167, 69, 0.1); border-radius: 6px; font-size: 14px;">✅ Intercambio Concretado</div>`;
+        actionButton = `<span style="display: block; text-align: center; color: green; font-weight: bold; margin-top: 10px;">¡Intercambio Concretado!</span>`;
     }
 
     card.innerHTML = `
-        <div style="position: relative; margin-bottom: 0;">
-            <img src="${imageUrl}" alt="${product.title}" style="width: 100%; height: 180px; object-fit: cover;">
-            <div style="position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; color: ${statusColor};">${statusBadge}</div>
+        <div style="margin-bottom: 10px;">
+            <img src="${imageUrl}" alt="${product.title}" style="width: 100%; height: 150px; object-fit: cover; border-radius: 4px;">
         </div>
-        <div style="padding: 15px;">
-            <h4 style="margin: 0 0 10px 0; color: #333; font-size: 16px; line-height: 1.3;">${product.title}</h4>
-            <p style="font-size: 14px; color: #666; line-height: 1.4; margin: 0 0 10px 0;">${product.description.substring(0, 120)}${product.description.length > 120 ? '...' : ''}</p>
-            <div style="display: flex; align-items: center; margin-bottom: 10px; padding: 8px; background: #f8f9fa; border-radius: 6px;">
-                <span style="font-size: 12px; color: #666; margin-right: 5px;">🔍 Busca:</span>
-                <span style="font-size: 12px; color: #333; font-weight: 500;">${product.exchangeFor || 'No especificado'}</span>
-            </div>
-            <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                <span style="font-size: 12px; color: #999; margin-right: 5px;">👤 Por:</span>
-                <strong style="font-size: 12px; color: #333;">${isOwner ? 'Ti' : product.owner.name}</strong>
-            </div>
-            ${actionButton}
-            ${finalizeButton}
-        </div>
+        <h4 style="margin-top:0; color:var(--primary-color);">${product.title}</h4>
+        <p style="font-size:14px; margin-bottom: 5px;">${product.description.substring(0, 100)}${product.description.length > 100 ? '...' : ''}</p>
+        <p style="font-size:12px; color:var(--secondary-color);">Busca: ${product.exchangeFor}</p>
+        <p style="font-size:12px; margin-top: 10px;">Publicado por: <strong>${isOwner ? 'Tú' : product.owner.name}</strong></p>
+        ${actionButton}
     `;
     return card;
 }
@@ -420,9 +418,12 @@ function renderUsersList() {
                 selectRecipient(user.id, user.name);
             };
 
+            const unread = unreadMessagesCount[user.id] || 0;
+            const badgeHtml = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+
             li.innerHTML = `
                 <div><strong>${user.name}</strong></div>
-                <div class="user-status">Online</div>
+                ${badgeHtml}
             `;
             list.appendChild(li);
 
@@ -430,15 +431,9 @@ function renderUsersList() {
         });
 }
 
-// 🚨 LÓGICA DEL PANEL DE PROPUESTAS
 async function loadProposalsFeed() {
     const proposalsDiv = document.getElementById('proposals-list');
-    proposalsDiv.innerHTML = `
-        <div style="text-align: center; padding: 40px 20px; color: #666;">
-            <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
-            <p style="margin: 0; font-size: 14px;">Cargando propuestas...</p>
-        </div>
-    `;
+    proposalsDiv.innerHTML = `<p style="text-align: center; color: #999; padding-top: 20px;">Cargando propuestas...</p>`;
 
     if (!currentToken) {
         proposalsDiv.innerHTML = `<p style="text-align: center; color: red; padding-top: 20px;">Error: Autenticación requerida.</p>`;
@@ -457,13 +452,19 @@ async function loadProposalsFeed() {
         
         if (exchanges.length === 0) {
             proposalsDiv.innerHTML = `<p style="text-align: center; color: #999;">No tienes propuestas pendientes, aceptadas o enviadas.</p>`;
+            hasNewProposals = false; 
+            updateTabBadge('proposals');
             return;
         }
 
         proposalsDiv.innerHTML = '';
+        hasNewProposals = exchanges.some(e => e.status === 'PENDING' && e.owner._id === currentUserId);
+        
         exchanges.forEach(exchange => {
             proposalsDiv.appendChild(createProposalCard(exchange));
         });
+        
+        updateTabBadge('proposals'); 
 
     } catch (error) {
         proposalsDiv.innerHTML = `<p style="text-align: center; color: red;">Error de red al cargar propuestas.</p>`;
@@ -480,18 +481,21 @@ function createProposalCard(exchange) {
     
     const isOwner = exchange.owner._id === currentUserId;
     const statusColor = {
-        'PENDING': 'orange',
-        'ACCEPTED': 'blue',
-        'REJECTED': 'red',
-        'COMPLETED': 'green'
+        'PENDING': '#ffc107',
+        'ACCEPTED': '#007bff',
+        'REJECTED': '#dc3545',
+        'COMPLETED': '#28a745'
     }[exchange.status] || 'gray';
     
     const actionText = isOwner ? 'RECIBIDA' : 'ENVIADA';
     const otherParty = isOwner ? exchange.interestedParty.name : exchange.owner.name;
     
-    // El producto principal es el que el dueño recibe
     const mainProductTitle = exchange.product.title; 
     const offeredProductTitle = exchange.offeredProduct.title;
+    
+    const mainProductImageUrl = exchange.product.imageUrl && exchange.product.imageUrl.startsWith('/') ? `${BACKEND_URL}${exchange.product.imageUrl}` : 'https://via.placeholder.com/50x50?text=Prod';
+    const offeredProductImageUrl = exchange.offeredProduct.imageUrl && exchange.offeredProduct.imageUrl.startsWith('/') ? `${BACKEND_URL}${exchange.offeredProduct.imageUrl}` : 'https://via.placeholder.com/50x50?text=Offr';
+
 
     let actionButtons = '';
     const interestedPartyId = exchange.interestedParty._id;
@@ -501,30 +505,25 @@ function createProposalCard(exchange) {
     if (isOwner && exchange.status === 'PENDING') {
         actionButtons = `
             <button onclick="handleAcceptReject('accept', '${productId}', '${interestedPartyId}', '${productName}')" 
-                style="padding: 8px; width: 48%; background-color: #28a745; margin-right: 4%;"
-            >Aceptar</button>
+                class="chat-action-btn accept-btn" style="width: 48%; margin-right: 4%;"
+            ><i class="fas fa-check"></i> Aceptar</button>
             <button onclick="handleAcceptReject('reject', '${productId}', '${interestedPartyId}', '${productName}')" 
-                style="padding: 8px; width: 48%; background-color: #dc3545;"
-            >Rechazar</button>
-        `;
-    } else if (exchange.status === 'ACCEPTED') {
-        actionButtons = `
-            <button onclick="finalizeExchange('${productId}', '${productName}')" 
-                style="padding: 8px; width: 100%; background-color: #007bff; margin-top: 10px;"
-            >Marcar como Concretado</button>
+                class="chat-action-btn reject-btn" style="width: 48%;"
+            ><i class="fas fa-times"></i> Rechazar</button>
         `;
     }
 
     card.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 10px;">
-            <h4 style="margin: 0; color: #333;">Propuesta ${actionText}</h4>
-            <span style="color: ${statusColor}; font-weight: bold;">${exchange.status}</span>
+            <h4 style="margin: 0; color: #333;"><i class="fas fa-list-alt"></i> Propuesta ${actionText}</h4>
+            <span style="color: white; background-color: ${statusColor}; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">${exchange.status}</span>
         </div>
 
-        <div style="display: flex; margin-bottom: 10px;">
-            <div>
-                <p style="margin:0; font-size: 14px; font-weight: bold;">Buscan: ${mainProductTitle}</p>
-                <p style="margin:0; font-size: 14px; color: #777;">Ofrecen: ${offeredProductTitle}</p>
+        <div style="margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; justify-content: center; background: #eee; padding: 10px; border-radius: 4px; text-align: center;">
+                <img src="${offeredProductImageUrl}" alt="Ofrecido" style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px;">
+                <span style="font-size: 14px; font-weight: bold; flex-shrink: 1;">${offeredProductTitle}</span> 🔄 <span style="font-size: 14px; font-weight: bold; flex-shrink: 1;">${mainProductTitle}</span>
+                <img src="${mainProductImageUrl}" alt="Principal" style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-left: 10px;">
             </div>
         </div>
         
@@ -540,26 +539,30 @@ function createProposalCard(exchange) {
 
 // --- 5. LÓGICA DE PUBLICACIÓN Y FINALIZACIÓN ---
 
-function openPostModal() {
+function openPostModal(isNewPost = true) {
     closePostModal(); 
     
-    // Configurar el modal para la publicación
-    document.getElementById('modal-title').textContent = 'Nueva Publicación';
-    document.getElementById('post-form-content').innerHTML = `
-        <input type="text" id="post-title" placeholder="Título del Producto" required>
-        <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-        <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-        <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-        <button onclick="submitNewPost()">Publicar Ahora</button>
-    `;
+    const formContent = document.getElementById('post-form-content');
+    const modalTitle = document.getElementById('modal-title');
+
+    if (isNewPost) {
+        modalTitle.textContent = 'Nueva Publicación';
+        formContent.innerHTML = `
+            <input type="text" id="post-title" placeholder="Título del Producto" required>
+            <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
+            <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
+            <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
+            <button onclick="submitNewPost()">Publicar Ahora</button>
+        `;
+    } 
     
     document.getElementById('post-modal').style.display = 'block';
+    document.getElementById('post-output').textContent = '';
 }
 
 function closePostModal() {
     document.getElementById('post-modal').style.display = 'none';
     
-    // Restaurar el formulario de publicación base
     document.getElementById('post-form-content').innerHTML = `
         <input type="text" id="post-title" placeholder="Título del Producto" required>
         <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
@@ -578,24 +581,15 @@ async function submitNewPost() {
     const exchangeFor = document.getElementById('post-exchange-for').value.trim();
     const imageFile = document.getElementById('post-image-file').files[0]; 
     const output = document.getElementById('post-output');
-    const submitBtn = document.querySelector('#post-form-content button');
 
     if (!title || !description) {
-        showToast('El título y la descripción son obligatorios.', 'warning');
+        output.textContent = 'El título y la descripción son obligatorios.';
+        output.style.color = 'red';
         return;
     }
 
-    // Add loading state to button
-    submitBtn.disabled = true;
-    submitBtn.style.opacity = '0.7';
-    submitBtn.innerHTML = `
-        <div style="display: inline-flex; align-items: center; gap: 8px;">
-            <div style="width: 16px; height: 16px; border: 2px solid transparent; border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-            Publicando...
-        </div>
-    `;
-    
-    showToast('Publicando producto...', 'info', 8000);
+    output.textContent = 'Publicando...';
+    output.style.color = 'blue';
 
     const formData = new FormData();
     formData.append('title', title);
@@ -614,77 +608,26 @@ async function submitNewPost() {
         });
 
         if (response.ok) {
-            const data = await response.json();
-            showToast(`✅ Producto "${title}" publicado con éxito`, 'success');
-            closePostModal();
-            await loadProductFeed();
-            switchTab('feed');
+            output.textContent = '✅ Publicación creada con éxito.';
+            output.style.color = 'green';
+            setTimeout(() => {
+                closePostModal();
+                loadProductFeed(); 
+            }, 1500);
         } else {
             const data = await response.json();
-            showToast(`Error al publicar: ${data.msg || 'Token inválido.'}`, 'error');
-            
-            // Reset button state
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = '1';
-            submitBtn.innerHTML = 'Publicar Ahora';
+            output.textContent = `❌ Error al publicar: ${data.msg || 'Token inválido.'}`;
+            output.style.color = 'red';
         }
     } catch (error) {
-        showToast('Error de red al publicar. Verifica tu conexión.', 'error');
-        
-        // Reset button state
-        submitBtn.disabled = false;
-        submitBtn.style.opacity = '1';
-        submitBtn.innerHTML = 'Publicar Ahora';
+        output.textContent = '❌ Error de red al publicar.';
+        output.style.color = 'red';
     }
 }
 
-async function finalizeExchange(productId, productName) {
-    // Enhanced confirmation dialog
-    const confirmMessage = `🔄 CONCRETAR INTERCAMBIO\n\n` +
-        `Producto: "${productName}"\n` +
-        `⚠️ ATENCIÓN: Esta acción eliminará AMBOS productos del feed permanentemente.\n\n` +
-        `¿Confirmas que el intercambio se ha completado exitosamente?`;
-        
-    if (!window.confirm(confirmMessage)) {
-        return;
-    }
-    
-    // Show loading state
-    const loadingToast = showToast('Finalizando intercambio...', 'info', 10000);
-    
-    // Obtener el ID del interesado del estado actual
-    const interestedPartyId = activeRecipientId;
 
-    try {
-        const response = await fetch(`${BACKEND_URL}/api/exchanges/${productId}/${interestedPartyId}/complete`, {
-            method: 'PUT',
-            headers: { 'Authorization': `Bearer ${currentToken}` }
-        });
 
-        // Close loading toast
-        closeToast(loadingToast);
 
-        if (response.ok) {
-            const data = await response.json();
-            const successMessage = data.completedProducts ? 
-                `Intercambio completado: "${data.completedProducts.main}" ↔️ "${data.completedProducts.offered}"\nAmbos productos han sido eliminados del feed.` :
-                `Intercambio de "${productName}" finalizado con éxito.`;
-            
-            showToast(successMessage, 'success', 6000);
-            
-            // Refresh all relevant data
-            await loadProductFeed();
-            await loadProposalsFeed();
-            switchTab('proposals'); 
-        } else {
-            const data = await response.json();
-            showToast(`Error al finalizar: ${data.msg || 'No autorizado o error del servidor'}.`, 'error');
-        }
-    } catch (error) {
-        closeToast(loadingToast);
-        showToast('Error de red al intentar finalizar el intercambio.', 'error');
-    }
-}
 
 
 // --- 6. CICLO DE VIDA DEL INTERCAMBIO Y CHAT ---
@@ -700,11 +643,10 @@ function handleChatInitiation(recipientId, recipientName, productId) {
         return;
     }
 
-    // 🚨 ABRIR MODAL DE SELECCIÓN DE PRODUCTOS PARA PROPUESTA
     openPostModal(); 
     document.getElementById('modal-title').textContent = 'Proponer Intercambio';
     const formContent = document.getElementById('post-form-content');
-    const ownerId = recipientId; // El destinatario es el dueño del post
+    const ownerId = recipientId; 
 
     formContent.innerHTML = `
         <h3 style="margin-top:0;">Intercambio por: ${productId.substring(0, 8)}...</h3>
@@ -746,8 +688,7 @@ async function submitProposal(ownerId, productId, recipientName) {
             conversationProductId = productId; 
             
             closePostModal();
-            selectRecipient(ownerId, recipientName); 
-            showInAppMessage(`Propuesta verificada/enviada: ${currentExchangeState.status}`, false, 3000);
+            showInAppMessage(`Propuesta de intercambio enviada: ${currentExchangeState.status}`, false, 3000);
             
         } else {
             output.textContent = `❌ Fallo al proponer: ${data.msg || 'Error desconocido'}`;
@@ -776,6 +717,7 @@ async function handleAcceptReject(action, productId, interestedPartyId, productN
             showInAppMessage(`Propuesta ${action.toUpperCase()} con éxito. Estado: ${data.exchange.status}`, false);
             selectRecipient(interestedPartyId, document.getElementById('recipient-name-display').textContent.split(' ')[0]);
             loadProductFeed(); 
+            loadProposalsFeed(); 
             switchTab('proposals'); 
         } else {
             showInAppMessage(`Error: ${data.msg || 'Fallo en la operación.'}`, true);
@@ -812,21 +754,9 @@ function renderChatActions(isOwner, productId, productName, exchangeStatus) {
             rejectBtn.style.cssText = 'padding: 5px 10px; font-size: 12px; background-color: #dc3545;';
             rejectBtn.onclick = () => handleAcceptReject('reject', productId, interestedPartyId, productName);
             actionsDiv.appendChild(rejectBtn);
-        } else if (exchangeStatus === 'ACCEPTED') {
-            const completeBtn = document.createElement('button');
-            completeBtn.textContent = 'CONCRETAR Intercambio';
-            completeBtn.style.cssText = 'padding: 5px 10px; font-size: 12px; background-color: #28a745;';
-            completeBtn.onclick = () => finalizeExchange(productId, productName); 
-            actionsDiv.appendChild(completeBtn);
         } else if (exchangeStatus === 'COMPLETED') {
              actionsDiv.innerHTML = `<span style="color: green; font-weight: bold;">Intercambio Finalizado</span>`;
         }
-    } else if (exchangeStatus === 'ACCEPTED') {
-        const completeBtn = document.createElement('button');
-        completeBtn.textContent = 'CONCRETAR (Mi Parte)';
-        completeBtn.style.cssText = 'padding: 5px 10px; font-size: 12px; background-color: #28a745;';
-        completeBtn.onclick = () => finalizeExchange(productId, productName);
-        actionsDiv.appendChild(completeBtn);
     }
 
     if (actionsDiv.children.length > 0) {
@@ -846,6 +776,12 @@ async function selectRecipient(userId, userName) {
     
     const li = document.querySelector(`#user-${userId}`);
     if (li) li.classList.add('selected');
+
+    // Clear unread messages for this recipient
+    if (unreadMessagesCount[userId]) {
+        delete unreadMessagesCount[userId];
+        updateTabBadge('contacts');
+    }
 
     document.getElementById('recipient-name-display').textContent = userName;
     document.getElementById('recipientId-display').textContent = userId.substring(0, 8) + '...';
@@ -877,9 +813,7 @@ async function selectRecipient(userId, userName) {
         
         // 2. Si hay referencia de producto, obtener el estado del intercambio
         if (productRef) {
-             const productResponse = await fetch(`${BACKEND_URL}/api/products`, {
-                 headers: { 'Authorization': `Bearer ${currentToken}` }
-             });
+             const productResponse = await fetch(`${BACKEND_URL}/api/products`);
              const allProducts = await productResponse.json();
              const product = allProducts.find(p => p._id === productRef);
              
@@ -896,7 +830,6 @@ async function selectRecipient(userId, userName) {
                  
                  if (exchangeData.exchange) {
                     currentExchangeState = exchangeData.exchange;
-                    // Renderizar botones si el intercambio es relevante
                     renderChatActions(isOwner, productRef, productName, currentExchangeState.status);
                  }
              }
@@ -924,11 +857,19 @@ async function selectRecipient(userId, userName) {
 function addChatMessage(message, senderId, timestamp, productId) {
     const chatLogDiv = document.getElementById('chat-messages');
     
-    // Handle notifications for users not in current conversation
-    if (senderId !== currentUserId && senderId !== activeRecipientId && senderId !== 'SYSTEM') {
+    if (senderId !== currentUserId && senderId !== activeRecipientId) {
         const senderName = localConnectedUsers[senderId] ? localConnectedUsers[senderId].name : 'Desconocido';
-        showNotification(senderName, message);
-        return;
+        showNotification(senderName, message); 
+
+        unreadMessagesCount[senderId] = (unreadMessagesCount[senderId] || 0) + 1;
+        const badge = document.getElementById(`unread-badge-${senderId}`);
+        if (badge) {
+            badge.textContent = unreadMessagesCount[senderId];
+            badge.style.display = 'inline-block';
+        }
+        updateTabBadge('contacts');
+
+        return; 
     }
 
     const isSent = (senderId === currentUserId);
@@ -963,19 +904,8 @@ function addChatMessage(message, senderId, timestamp, productId) {
         if (productId) {
             const productRef = productId.substring(0, 8);
             referenceHTML = `
-                <div style="
-                    background: ${isSent ? 'rgba(255,255,255,0.2)' : 'rgba(0,123,255,0.1)'}; 
-                    border-left: 3px solid #ffc107; 
-                    padding: 6px 10px; 
-                    margin-bottom: 8px; 
-                    font-size: 11px; 
-                    border-radius: 6px; 
-                    color: ${isSent ? 'rgba(255,255,255,0.9)' : '#666'};
-                    display: flex;
-                    align-items: center;
-                    gap: 5px;
-                ">
-                    📎 <strong>Ref. ${productRef}...</strong>
+                <div style="background: rgba(255,255,255,0.2); border-left: 3px solid #ffc107; padding: 5px; margin-bottom: 8px; font-size: 11px; border-radius: 4px; color: #333;">
+                    Referencia a Publicación: <strong>${productRef}...</strong>
                 </div>
             `;
         }
@@ -984,28 +914,21 @@ function addChatMessage(message, senderId, timestamp, productId) {
             ${referenceHTML}
             <div style="margin-bottom: 4px;">${message}</div>
             <span class="message-info">
-                ${isSent ? '📤' : '📬'} ${senderName} • ${timeStr}
+                ${isSent ? '<i class="fas fa-paper-plane"></i>' : '<i class="fas fa-envelope-open-text"></i>'} ${senderName} • ${timeStr}
             </span>
         `;
     }
     
-    // Clear placeholder text
     if (chatLogDiv.innerHTML.includes('Selecciona un usuario') || chatLogDiv.innerHTML.includes('Cargando historial')) {
-        chatLogDiv.innerHTML = '';
+        chatLogDiv.innerHTML = ''; 
     }
 
     chatLogDiv.appendChild(messageDiv);
     
-    // Smooth scroll to bottom
     chatLogDiv.scrollTo({
         top: chatLogDiv.scrollHeight,
         behavior: 'smooth'
     });
-    
-    // Add sound effect for new messages (optional)
-    if (!isSent && !isSystem) {
-        // You could add a subtle sound here
-    }
 }
 
 function connectChat() {
@@ -1039,7 +962,18 @@ function connectChat() {
         }
     });
 
-    socket.on('newMessage', (data) => { addChatMessage(data.message, data.senderId, data.timestamp, data.productId); });
+    socket.on('newMessage', (data) => { 
+        if (data.senderId === activeRecipientId) {
+            addChatMessage(data.message, data.senderId, data.timestamp, data.productId);
+            if (unreadMessagesCount[data.senderId]) { delete unreadMessagesCount[data.senderId]; updateTabBadge('contacts'); }
+        } else if (data.senderId !== currentUserId) {
+            addChatMessage(data.message, data.senderId, data.timestamp, data.productId); 
+        }
+        
+        if (data.productId) {
+            loadProposalsFeed();
+        }
+    });
 }
 
 function sendMessage() {
@@ -1058,6 +992,8 @@ function sendMessage() {
     };
     
     socket.emit('sendMessage', messageData);
+    
+    addChatMessage(message, currentUserId, new Date().toISOString(), conversationProductId);
     
     if (conversationProductId) {
         conversationProductId = null; 
