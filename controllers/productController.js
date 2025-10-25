@@ -32,14 +32,18 @@ exports.createProduct = async (req, res) => {
         if (description.length < 10 || description.length > 500) {
             return res.status(400).json({ msg: 'La descripción debe tener entre 10 y 500 caracteres.' });
         }
-        const imageUrl = req.file ? `/uploads/${req.file.filename}` : 'placeholder.jpg'; 
+        
+        let imageUrls = [];
+        if (req.files && req.files.length > 0) {
+            imageUrls = req.files.map(file => `/uploads/${file.filename}`);
+        }
         
         const newProduct = new Product({
             owner: req.user.id,
             title,
             description,
             exchangeFor,
-            imageUrl
+            imageUrls
         });
 
         await newProduct.save();
@@ -82,6 +86,66 @@ exports.finalizeExchange = async (req, res) => {
     } catch (err) {
         console.error('Error al finalizar intercambio:', err.message);
         if (err.kind === 'ObjectId') { return res.status(400).json({ msg: 'ID de producto inválido.' }); }
+        res.status(500).send('Error del servidor');
+    }
+};
+
+exports.getProductById = async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id).populate('owner', 'name email');
+        if (!product) {
+            return res.status(404).json({ msg: 'Producto no encontrado.' });
+        }
+        res.json(product);
+    } catch (err) {
+        console.error('Error al obtener producto:', err.message);
+        if (err.kind === 'ObjectId') {
+            return res.status(400).json({ msg: 'ID de producto inválido.' });
+        }
+        res.status(500).send('Error del servidor');
+    }
+};
+
+exports.updateProduct = async (req, res) => {
+    try {
+        const { title, description, exchangeFor, existingImages } = req.body;
+        let product = await Product.findById(req.params.id);
+
+        if (!product) {
+            return res.status(404).json({ msg: 'Producto no encontrado.' });
+        }
+
+        // Check if the user is the owner
+        if (product.owner.toString() !== req.user.id) {
+            return res.status(401).json({ msg: 'No autorizado.' });
+        }
+
+        // Update fields
+        if (title) product.title = title;
+        if (description) product.description = description;
+        if (exchangeFor) product.exchangeFor = exchangeFor;
+
+        let imageUrls = existingImages ? (Array.isArray(existingImages) ? existingImages : [existingImages]) : [];
+
+        if (req.files && req.files.length > 0) {
+            const newImageUrls = req.files.map(file => `/uploads/${file.filename}`);
+            imageUrls = [...imageUrls, ...newImageUrls];
+        }
+        
+        if(imageUrls.length > 5) {
+            return res.status(400).json({ msg: 'No puedes tener más de 5 imágenes.' });
+        }
+
+        product.imageUrls = imageUrls;
+
+        await product.save();
+        res.json(product);
+
+    } catch (err) {
+        console.error('Error al actualizar producto:', err.message);
+        if (err.kind === 'ObjectId') {
+            return res.status(400).json({ msg: 'ID de producto inválido.' });
+        }
         res.status(500).send('Error del servidor');
     }
 };

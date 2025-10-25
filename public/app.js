@@ -1,97 +1,55 @@
-// public/app.js
-const BACKEND_URL = 'http://localhost:5000'; 
-let currentToken = localStorage.getItem('jwtToken') || ''; 
-let currentUserId = ''; 
-let socket = null;
-let refreshIntervalId = null; 
-const localConnectedUsers = {}; 
-let activeRecipientId = null; 
-let conversationProductId = null; 
-let currentExchangeState = null; 
-let userOwnProducts = [];
-let unreadMessagesCount = {}; 
-let hasNewProposals = false;
 
+// public/app.js
+const BACKEND_URL = 'http://localhost:5000';
+let currentToken = localStorage.getItem('jwtToken') || '';
+let currentUserId = '';
+let socket = null;
+let refreshIntervalId = null;
+const localConnectedUsers = {};
+let activeRecipientId = null;
+let conversationProductId = null;
+let currentExchangeState = null;
+let userOwnProducts = [];
+let unreadMessagesCount = {};
+let hasNewProposals = false;
 
 // --- 1. FUNCIONES DE UI Y UTILIDAD ---
 
-function showToast(message, type = 'info', duration = 5000) {
+function showToast(message, type = 'info', duration = 3000) {
     const toastContainer = document.getElementById('toast-container');
-    const toastId = 'toast-' + Date.now();
-    
-    const titles = {
-        success: '<i class="fas fa-check-circle"></i> Éxito',
-        error: '<i class="fas fa-times-circle"></i> Error', 
-        info: '<i class="fas fa-info-circle"></i> Información',
-        warning: '<i class="fas fa-exclamation-triangle"></i> Advertencia'
-    };
-    
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.id = toastId;
-    
-    toast.innerHTML = `
-        <div class="toast-header">
-            <h4 class="toast-title">${titles[type] || titles.info}</h4>
-            <button class="toast-close" onclick="closeToast('${toastId}')">&times;</button>
-        </div>
-        <div class="toast-body">${message}</div>
-        <div class="toast-progress" style="width: 100%;"></div>
-    `;
-    
+    toast.className = `toast ${type} show`;
+    toast.textContent = message;
     toastContainer.appendChild(toast);
-    
-    setTimeout(() => toast.classList.add('show'), 10);
-    
-    const progressBar = toast.querySelector('.toast-progress');
-    setTimeout(() => {
-        progressBar.style.transition = `width ${duration}ms linear`;
-        progressBar.style.width = '0%';
-    }, 100);
-    
-    setTimeout(() => closeToast(toastId), duration);
-    
-    return toastId;
-}
 
-function closeToast(toastId) {
-    const toast = document.getElementById(toastId);
-    if (toast) {
+    setTimeout(() => {
         toast.classList.remove('show');
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.parentNode.removeChild(toast);
-            }
-        }, 300);
-    }
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
 }
 
 function showInterface(idToShow) {
-    document.getElementById('auth-interface').style.display = 'none';
-    document.getElementById('chat-interface').style.display = 'none';
-    
-    const mainContainer = document.querySelector('.app-container');
+    const authInterface = document.getElementById('auth-interface');
+    const chatInterface = document.getElementById('chat-interface');
+
     if (idToShow === 'chat-interface') {
-        document.getElementById(idToShow).style.display = 'flex';
-        mainContainer.style.maxWidth = '1000px';
-        mainContainer.style.height = '90vh';
+        authInterface.style.display = 'none';
+        chatInterface.style.display = 'flex';
     } else {
-        document.getElementById(idToShow).style.display = 'block';
-        mainContainer.style.maxWidth = '400px';
-        mainContainer.style.height = 'auto';
+        authInterface.style.display = 'flex';
+        chatInterface.style.display = 'none';
     }
 }
 
 function updateAuthOutput(message, isError = false) {
-    const outputSpan = document.getElementById('auth-output');
-    outputSpan.style.color = isError ? 'red' : 'green';
-    outputSpan.textContent = message;
+    showToast(message, isError ? 'error' : 'success');
 }
 
 function updateSocketStatus(isConnected) {
     const statusDiv = document.getElementById('socket-status');
-    statusDiv.textContent = isConnected ? 'Estado: Conectado' : 'Estado: Desconectado';
-    statusDiv.style.color = isConnected ? 'green' : 'red';
+    statusDiv.innerHTML = isConnected
+        ? '<i class="fas fa-circle" style="color: var(--success-color);"></i> Conectado'
+        : '<i class="fas fa-circle" style="color: var(--danger-color);"></i> Desconectado';
 }
 
 function requestNotificationPermission() {
@@ -104,7 +62,7 @@ function showNotification(senderName, messageContent) {
     if (Notification.permission === "granted") {
         new Notification(`Mensaje de ${senderName}`, {
             body: messageContent.substring(0, 50) + '...',
-            icon: 'icon.png' 
+            icon: 'icon.png'
         });
     }
 }
@@ -113,68 +71,46 @@ function updateTabBadge(tabId) {
     const tabButton = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
     if (!tabButton) return;
 
-    let badge = tabButton.querySelector('.tab-notification-badge');
+    let badge = tabButton.querySelector('.badge');
     if (!badge) {
         badge = document.createElement('span');
-        badge.className = 'tab-notification-badge';
+        badge.className = 'badge';
         tabButton.appendChild(badge);
     }
 
+    let count = 0;
     if (tabId === 'contacts') {
-        const totalUnread = Object.values(unreadMessagesCount).reduce((sum, count) => sum + count, 0);
-        badge.textContent = totalUnread > 0 ? totalUnread : '';
-        badge.style.display = totalUnread > 0 ? 'inline-block' : 'none';
+        count = Object.values(unreadMessagesCount).reduce((sum, c) => sum + c, 0);
     } else if (tabId === 'proposals') {
-        badge.textContent = hasNewProposals ? '!' : '';
-        badge.style.display = hasNewProposals ? 'inline-block' : 'none';
+        count = hasNewProposals ? '!' : 0;
     }
+
+    badge.textContent = count > 0 ? count : '';
+    badge.style.display = count > 0 ? 'block' : 'none';
 }
 
 function switchTab(tabId) {
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.querySelectorAll('.main-content .tab-content').forEach(content => content.style.display = 'none');
+    document.getElementById('chat-view').style.display = 'none';
 
     const button = document.querySelector(`.tab-button[onclick="switchTab('${tabId}')"]`);
-    const content = document.getElementById(`${tabId}-tab-content`);
+    button.classList.add('active');
 
-    if (button) button.classList.add('active');
-    if (content) content.classList.add('active');
-
-    if (tabId === 'feed') {
-        loadProductFeed();
-    } else if (tabId === 'proposals') { 
-        loadProposalsFeed(); 
-    } else if (tabId === 'contacts') {
+    if (tabId === 'contacts') {
+        document.querySelector('.sidebar-content').style.display = 'block';
         renderUsersList();
-    }
-}
-
-function showInAppMessage(message, isError = false, duration = 3000) {
-    const modal = document.getElementById('post-modal');
-    const output = document.getElementById('post-output');
-    const formContent = document.getElementById('post-form-content');
-    
-    formContent.style.display = 'none'; 
-    document.getElementById('modal-title').textContent = isError ? 'Error' : 'Notificación';
-    
-    output.textContent = message;
-    output.style.color = isError ? 'red' : 'green';
-    
-    modal.style.display = 'block';
-    
-    if (isError || duration > 0) {
-         setTimeout(() => {
-             modal.style.display = 'none';
-             formContent.style.display = 'block'; 
-             output.textContent = ''; 
-             document.getElementById('modal-title').textContent = 'Nueva Publicación';
-         }, duration);
+    } else {
+        document.querySelector('.sidebar-content').style.display = 'none';
+        const content = document.getElementById(`${tabId}-tab-content`);
+        content.style.display = 'block';
+        if (tabId === 'feed') loadProductFeed();
+        if (tabId === 'proposals') loadProposalsFeed();
     }
 }
 
 function openPostModal(isNewPost = true) {
-    closePostModal(); 
-    
+    const modal = document.getElementById('post-modal');
     const formContent = document.getElementById('post-form-content');
     const modalTitle = document.getElementById('modal-title');
 
@@ -182,72 +118,261 @@ function openPostModal(isNewPost = true) {
         modalTitle.textContent = 'Nueva Publicación';
         formContent.innerHTML = `
             <input type="text" id="post-title" placeholder="Título del Producto" required>
-            <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-            <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-            <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-            <button onclick="submitNewPost()">Publicar Ahora</button>
+            <textarea id="post-description" placeholder="Descripción detallada..." rows="4"></textarea>
+            <div id="image-preview-container"></div>
+            <input type="file" id="post-image-file" name="images" accept="image/*" multiple onchange="previewImages()">
+            <input type="text" id="post-exchange-for" placeholder="¿Qué buscas a cambio?">
+            <button onclick="submitNewPost()">Publicar</button>
         `;
-    } 
-    
-    document.getElementById('post-modal').style.display = 'block';
-    document.getElementById('post-output').textContent = '';
+    }
+    modal.style.display = 'flex';
 }
 
 function closePostModal() {
     document.getElementById('post-modal').style.display = 'none';
-    
-    document.getElementById('post-form-content').innerHTML = `
-        <input type="text" id="post-title" placeholder="Título del Producto" required>
-        <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-        <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-        <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-        <button onclick="submitNewPost()">Publicar Ahora</button>
-    `;
-    document.getElementById('modal-title').textContent = 'Nueva Publicación';
     document.getElementById('post-output').textContent = '';
-    document.getElementById('post-form-content').style.display = 'block';
 }
 
+function previewImages() {
+    const previewContainer = document.getElementById('image-preview-container');
+    const files = document.getElementById('post-image-file').files;
+    previewContainer.innerHTML = ''; // Clear previous previews
+
+    if (files.length > 5) {
+        showToast('Puedes seleccionar un máximo de 5 imágenes.', 'warning');
+        // Clear the file input
+        document.getElementById('post-image-file').value = '';
+        return;
+    }
+
+    for (const file of files) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.style.maxWidth = '100px';
+            img.style.maxHeight = '100px';
+            img.style.margin = '5px';
+            previewContainer.appendChild(img);
+        }
+        reader.readAsDataURL(file);
+    }
+}
+
+function closeProductDetailsModal() {
+    document.getElementById('product-details-modal').style.display = 'none';
+}
+
+async function openProductDetailsModal(productId) {
+    const modal = document.getElementById('product-details-modal');
+    const content = document.getElementById('product-details-content');
+    content.innerHTML = '<p>Cargando detalles...</p>';
+    modal.style.display = 'flex';
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/products/${productId}`, {
+            headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+        if (!response.ok) {
+            throw new Error('Producto no encontrado');
+        }
+        const product = await response.json();
+
+        const imagesHTML = product.imageUrls.map((url, index) => `
+            <div class="carousel-slide">
+                <img src="${BACKEND_URL}${url}" alt="${product.title}">
+            </div>
+        `).join('');
+
+        const dotsHTML = product.imageUrls.map((url, index) => `
+            <span class="carousel-dot" onclick="showSlide(${index})"></span>
+        `).join('');
+
+        const carouselHTML = `
+            <div class="carousel-container">
+                ${imagesHTML}
+                <a class="carousel-prev" onclick="changeSlide(-1)">&#10094;</a>
+                <a class="carousel-next" onclick="changeSlide(1)">&#10095;</a>
+                <div class="carousel-dots">
+                    ${dotsHTML}
+                </div>
+            </div>
+        `;
+
+        let editButton = '';
+        if (product.owner._id === currentUserId) {
+            editButton = `<button onclick='openEditProductModal(${JSON.stringify(product)})'>Editar</button>`;
+        }
+
+        content.innerHTML = `
+            <h2>${product.title}</h2>
+            ${carouselHTML}
+            <p>${product.description}</p>
+            <p><strong>Busca a cambio:</strong> ${product.exchangeFor}</p>
+            <p><small>Publicado por: ${product.owner.name}</small></p>
+            ${editButton}
+        `;
+
+        initializeCarousel();
+
+    } catch (error) {
+        content.innerHTML = `<p style="color:red;">${error.message}</p>`;
+    }
+}
+
+let slideIndex = 0;
+
+function initializeCarousel() {
+    slideIndex = 0;
+    showSlide(slideIndex);
+}
+
+function changeSlide(n) {
+    showSlide(slideIndex += n);
+}
+
+function showSlide(n) {
+    let i;
+    let slides = document.getElementsByClassName("carousel-slide");
+    let dots = document.getElementsByClassName("carousel-dot");
+    if (n >= slides.length) {slideIndex = 0}
+    if (n < 0) {slideIndex = slides.length - 1}
+    for (i = 0; i < slides.length; i++) {
+        slides[i].style.display = "none";
+    }
+    for (i = 0; i < dots.length; i++) {
+        dots[i].className = dots[i].className.replace(" active-dot", "");
+    }
+    slides[slideIndex].style.display = "block";
+    dots[slideIndex].className += " active-dot";
+}
+
+function openEditProductModal(product) {
+    const content = document.getElementById('product-details-content');
+
+    const existingImagesHTML = product.imageUrls.map(url => `
+        <div class="existing-image-preview">
+            <img src="${BACKEND_URL}${url}" />
+            <input type="checkbox" name="existingImages" value="${url}" checked> Mantener
+        </div>
+    `).join('');
+
+    content.innerHTML = `
+        <h2>Editando: ${product.title}</h2>
+        <input type="text" id="edit-post-title" value="${product.title}" required>
+        <textarea id="edit-post-description" rows="4">${product.description}</textarea>
+        <p>Imágenes existentes:</p>
+        <div class="existing-images-container">${existingImagesHTML}</div>
+        <p>Añadir nuevas imágenes:</p>
+        <div id="edit-image-preview-container"></div>
+        <input type="file" id="edit-post-image-file" name="images" accept="image/*" multiple onchange="previewEditImages()">
+        <input type="text" id="edit-post-exchange-for" value="${product.exchangeFor}">
+        <button onclick="saveProductChanges('${product._id}')">Guardar Cambios</button>
+    `;
+}
+
+function previewEditImages() {
+    const previewContainer = document.getElementById('edit-image-preview-container');
+    const files = document.getElementById('edit-post-image-file').files;
+    previewContainer.innerHTML = ''; // Clear previous previews
+
+    if (files.length > 5) {
+        showToast('Puedes seleccionar un máximo de 5 imágenes.', 'warning');
+        document.getElementById('edit-post-image-file').value = '';
+        return;
+    }
+
+    for (const file of files) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = document.createElement('img');
+            img.src = e.target.result;
+            img.style.maxWidth = '100px';
+            img.style.maxHeight = '100px';
+            img.style.margin = '5px';
+            previewContainer.appendChild(img);
+        }
+        reader.readAsDataURL(file);
+    }
+}
+
+async function saveProductChanges(productId) {
+    const title = document.getElementById('edit-post-title').value.trim();
+    const description = document.getElementById('edit-post-description').value.trim();
+    const exchangeFor = document.getElementById('edit-post-exchange-for').value.trim();
+    const imageFiles = document.getElementById('edit-post-image-file').files;
+    
+    const existingImages = Array.from(document.querySelectorAll('input[name="existingImages"]:checked')).map(cb => cb.value);
+
+    if (!title || !description) {
+        showToast('Título y descripción son obligatorios', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('description', description);
+    formData.append('exchangeFor', exchangeFor);
+    
+    existingImages.forEach(img => {
+        formData.append('existingImages', img);
+    });
+
+    if (imageFiles.length > 0) {
+        for (let i = 0; i < imageFiles.length; i++) {
+            formData.append('images', imageFiles[i]);
+        }
+    }
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/api/products/${productId}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${currentToken}` },
+            body: formData
+        });
+
+        if (response.ok) {
+            showToast('Publicación actualizada con éxito', 'success');
+            closeProductDetailsModal();
+            loadProductFeed();
+        } else {
+            const data = await response.json();
+            showToast(data.msg || 'Error al actualizar', 'error');
+        }
+    } catch (error) {
+        showToast('Error de red al actualizar', 'error');
+    }
+}
 
 // --- 2. GESTIÓN DEL TOKEN Y SESIÓN ---
 
 async function attemptTokenRefresh() {
     if (!currentToken) return stopTokenRefreshLoop();
-
     try {
         const response = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${currentToken}` }
         });
-
         const data = await response.json();
-
         if (response.ok) {
             currentToken = data.token;
             localStorage.setItem('jwtToken', currentToken);
         } else {
-            console.warn("❌ Falló la renovación del token. Sesión caducada.");
             logout();
         }
     } catch (error) {
-        console.error("Error de red al intentar renovar el token:", error);
         logout();
     }
 }
 
 function startTokenRefreshLoop() {
-    stopTokenRefreshLoop(); 
-    const refreshInterval = 15 * 60 * 1000;
-    refreshIntervalId = setInterval(attemptTokenRefresh, refreshInterval);
+    stopTokenRefreshLoop();
+    refreshIntervalId = setInterval(attemptTokenRefresh, 15 * 60 * 1000);
 }
 
 function stopTokenRefreshLoop() {
-    if (refreshIntervalId) {
-        clearInterval(refreshIntervalId);
-        refreshIntervalId = null;
-    }
+    clearInterval(refreshIntervalId);
 }
-
 
 // --- 3. AUTENTICACIÓN (REST) ---
 
@@ -255,10 +380,8 @@ async function handleAuth(endpoint) {
     const name = document.getElementById('name').value;
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
-
     const body = { email, password };
-    if (endpoint === 'register') { body.name = name; }
-    updateAuthOutput(`Intentando ${endpoint}...`);
+    if (endpoint === 'register') body.name = name;
 
     try {
         const response = await fetch(`${BACKEND_URL}/api/auth/${endpoint}`, {
@@ -266,32 +389,24 @@ async function handleAuth(endpoint) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-
         const data = await response.json();
-
         if (response.ok) {
             currentToken = data.token;
-            localStorage.setItem('jwtToken', currentToken); 
-            
+            localStorage.setItem('jwtToken', currentToken);
             const payload = JSON.parse(atob(currentToken.split('.')[1]));
-            currentUserId = payload.user.id; 
-            
+            currentUserId = payload.user.id;
             document.getElementById('current-user-id').textContent = currentUserId.substring(0, 8) + '...';
-            updateAuthOutput(`✅ ${endpoint.toUpperCase()} exitoso. ID: ${currentUserId.substring(0, 8)}...`);
-            
-            startTokenRefreshLoop(); 
-            requestNotificationPermission(); 
+            updateAuthOutput(`${endpoint.charAt(0).toUpperCase() + endpoint.slice(1)} exitoso!`);
+            startTokenRefreshLoop();
+            requestNotificationPermission();
             showInterface('chat-interface');
-            await loadProductFeed();
-            connectChat();
             switchTab('feed');
+            connectChat();
         } else {
-            updateAuthOutput(`❌ Error en ${endpoint.toUpperCase()}: ${data.msg || 'Error desconocido'}`, true);
-            currentToken = '';
-            localStorage.removeItem('jwtToken');
+            updateAuthOutput(data.msg || 'Error desconocido', true);
         }
     } catch (error) {
-        updateAuthOutput(`❌ Error de conexión: ${error.message}`, true);
+        updateAuthOutput(`Error de conexión: ${error.message}`, true);
     }
 }
 
@@ -300,304 +415,160 @@ function loginUser() { handleAuth('login'); }
 
 function logout() {
     currentToken = '';
-    currentUserId = '';
-    activeRecipientId = null;
-    conversationProductId = null;
-    currentExchangeState = null;
-    
-    localStorage.removeItem('jwtToken'); 
-    stopTokenRefreshLoop(); 
-    if (socket && socket.connected) { socket.disconnect(); }
-    
-    document.getElementById('chat-messages').innerHTML = '<p style="text-align: center; color: #999;">Selecciona un usuario a la izquierda para comenzar a chatear.</p>';
-    document.getElementById('recipient-name-display').textContent = 'Selecciona un Contacto';
-    document.getElementById('recipientId-display').textContent = 'N/A';
-    document.getElementById('message-input').disabled = true;
-    document.querySelector('.send-button').disabled = true;
-    
-    Object.keys(localConnectedUsers).forEach(key => delete localConnectedUsers[key]);
+    localStorage.removeItem('jwtToken');
+    stopTokenRefreshLoop();
+    if (socket && socket.connected) socket.disconnect();
     showInterface('auth-interface');
 }
 
-
-// --- 4. LÓGICA DE FEED DE PRODUCTOS Y USUARIOS ---
+// --- 4. LÓGICA DE FEED Y LISTAS ---
 
 async function loadProductFeed() {
     const feedDiv = document.getElementById('product-feed-list');
-    feedDiv.innerHTML = `<p style="text-align: center; color: #999; padding-top: 20px;">Cargando productos...</p>`;
+    feedDiv.innerHTML = `<p>Cargando productos...</p>`;
+    if (!currentToken) return;
 
-    if (!currentToken) {
-        feedDiv.innerHTML = `<p style="text-align: center; color: red; padding-top: 20px;">Error: Autenticación requerida.</p>`;
-        return;
-    }
-    
     try {
         const response = await fetch(`${BACKEND_URL}/api/products`, {
-            method: 'GET',
             headers: { 'Authorization': `Bearer ${currentToken}` }
         });
-
-        if (response.status === 401) {
-             showInAppMessage("Tu sesión ha expirado. Por favor, inicia sesión de nuevo.", true, 5000);
-             logout();
-             return;
-        }
-
+        if (response.status === 401) return logout();
         const products = await response.json();
-        
         userOwnProducts = products.filter(p => p.owner._id === currentUserId);
-
-        if (response.ok) {
-            feedDiv.innerHTML = ''; 
-            products.forEach(product => {
-                if (product.owner._id === currentUserId || product.exchangeStatus === 'ACTIVE') {
-                    localConnectedUsers[product.owner._id] = { id: product.owner._id, name: product.owner.name };
-                    feedDiv.appendChild(createProductCard(product));
-                }
-            });
-            if (feedDiv.children.length === 0) {
-                 feedDiv.innerHTML = `<p style="text-align: center; color: #999;">Aún no hay publicaciones activas.</p>`;
+        feedDiv.innerHTML = '';
+        products.forEach(product => {
+            if (product.owner._id === currentUserId || product.exchangeStatus === 'ACTIVE') {
+                localConnectedUsers[product.owner._id] = { id: product.owner._id, name: product.owner.name };
+                feedDiv.appendChild(createProductCard(product));
             }
-        } else if (response.ok) {
-            feedDiv.innerHTML = `<p style="text-align: center; color: #999;">El feed está vacío.</p>`;
-        } else {
-             feedDiv.innerHTML = `<p style="text-align: center; color: red;">Error al cargar el feed.</p>`;
-        }
+        });
     } catch (error) {
-        feedDiv.innerHTML = `<p style="text-align: center; color: red;">Error de red al cargar el feed.</p>`;
+        feedDiv.innerHTML = `<p style="color:red;">Error de red al cargar el feed.</p>`;
     }
 }
 
 function createProductCard(product) {
     const card = document.createElement('div');
-    card.style.border = '1px solid #ddd';
-    card.style.borderRadius = '6px';
-    card.style.padding = '15px';
-    card.style.marginBottom = '15px';
-    card.style.backgroundColor = '#fff';
-    
-    const imageUrl = product.imageUrl && product.imageUrl.startsWith('/') ? `${BACKEND_URL}${product.imageUrl}` : 'https://via.placeholder.com/300x150?text=Sin+Imagen';
-
-    let actionButton;
+    card.className = 'product-card';
+    card.setAttribute('onclick', `openProductDetailsModal('${product._id}')`);
+    const imageUrl = product.imageUrls && product.imageUrls.length > 0 
+        ? `${BACKEND_URL}${product.imageUrls[0]}` 
+        : 'https://via.placeholder.com/300x150?text=Sin+Imagen';
     const isOwner = product.owner._id === currentUserId;
-    
-    if (isOwner && product.exchangeStatus === 'ACTIVE') {
-        actionButton = `<span style="display: block; text-align: center; color: var(--primary-color); font-weight: bold; margin-top: 10px;">¡Tu Publicación!</span>`;
-    } else if (product.exchangeStatus === 'ACTIVE') {
-        actionButton = `<button onclick="handleChatInitiation('${product.owner._id}', '${product.owner.name}', '${product._id}')" style="padding: 8px; width: 100%; margin-top: 10px; background-color: #ffc107; color: #333; border: none; border-radius: 4px;">Chatear para Intercambio</button>`;
+
+    let actionButton = '';
+    if (isOwner) {
+        actionButton = `<button disabled>Es tu publicación</button>`;
     } else {
-        actionButton = `<span style="display: block; text-align: center; color: green; font-weight: bold; margin-top: 10px;">¡Intercambio Concretado!</span>`;
+        actionButton = `<button onclick="event.stopPropagation(); handleChatInitiation('${product.owner._id}', '${product.owner.name}', '${product._id}')">Proponer Intercambio</button>`;
     }
 
     card.innerHTML = `
-        <div style="margin-bottom: 10px;">
-            <img src="${imageUrl}" alt="${product.title}" style="width: 100%; height: 150px; object-fit: cover; border-radius: 4px;">
+        <img src="${imageUrl}" alt="${product.title}">
+        <h4>${product.title}</h4>
+        <p>${product.description}</p>
+        <p><small>Busca: ${product.exchangeFor}</small></p>
+        <p><small>Publicado por: <strong>${isOwner ? 'Tú' : product.owner.name}</strong></small></p>
+        <div class="card-actions">
+            ${actionButton}
         </div>
-        <h4 style="margin-top:0; color:var(--primary-color);">${product.title}</h4>
-        <p style="font-size:14px; margin-bottom: 5px;">${product.description.substring(0, 100)}${product.description.length > 100 ? '...' : ''}</p>
-        <p style="font-size:12px; color:var(--secondary-color);">Busca: ${product.exchangeFor}</p>
-        <p style="font-size:12px; margin-top: 10px;">Publicado por: <strong>${isOwner ? 'Tú' : product.owner.name}</strong></p>
-        ${actionButton}
     `;
     return card;
 }
 
 function renderUsersList() {
     const list = document.getElementById('connected-users-list');
-    list.innerHTML = ''; 
-    
+    list.innerHTML = '';
     Object.values(localConnectedUsers)
-        .filter(user => user.id !== currentUserId) 
-        .sort((a, b) => a.name.localeCompare(b.name)) 
+        .filter(user => user.id !== currentUserId)
+        .sort((a, b) => a.name.localeCompare(b.name))
         .forEach(user => {
             const li = document.createElement('li');
-            li.id = `user-${user.id}`; 
-            
-            li.onclick = () => {
-                conversationProductId = null; 
-                selectRecipient(user.id, user.name);
-            };
-
+            li.id = `user-${user.id}`;
+            li.onclick = () => selectRecipient(user.id, user.name);
             const unread = unreadMessagesCount[user.id] || 0;
-            const badgeHtml = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-
             li.innerHTML = `
-                <div><strong>${user.name}</strong></div>
-                ${badgeHtml}
+                <strong>${user.name}</strong>
+                ${unread > 0 ? `<span class="badge">${unread}</span>` : ''}
             `;
             list.appendChild(li);
-
-            if (user.id === activeRecipientId) { li.classList.add('selected'); }
         });
 }
 
 async function loadProposalsFeed() {
     const proposalsDiv = document.getElementById('proposals-list');
-    proposalsDiv.innerHTML = `<p style="text-align: center; color: #999; padding-top: 20px;">Cargando propuestas...</p>`;
-
-    if (!currentToken) {
-        proposalsDiv.innerHTML = `<p style="text-align: center; color: red; padding-top: 20px;">Error: Autenticación requerida.</p>`;
-        return;
-    }
+    proposalsDiv.innerHTML = `<p>Cargando propuestas...</p>`;
+    if (!currentToken) return;
 
     try {
         const response = await fetch(`${BACKEND_URL}/api/exchanges/profile`, {
-            method: 'GET',
             headers: { 'Authorization': `Bearer ${currentToken}` }
         });
-        
-        if (response.status === 401) { return logout(); }
-
+        if (response.status === 401) return logout();
         const exchanges = await response.json();
-        
-        if (exchanges.length === 0) {
-            proposalsDiv.innerHTML = `<p style="text-align: center; color: #999;">No tienes propuestas pendientes, aceptadas o enviadas.</p>`;
-            hasNewProposals = false; 
-            updateTabBadge('proposals');
-            return;
-        }
-
         proposalsDiv.innerHTML = '';
         hasNewProposals = exchanges.some(e => e.status === 'PENDING' && e.owner._id === currentUserId);
-        
+        updateTabBadge('proposals');
+        if (exchanges.length === 0) {
+            proposalsDiv.innerHTML = `<p>No tienes propuestas.</p>`;
+            return;
+        }
         exchanges.forEach(exchange => {
             proposalsDiv.appendChild(createProposalCard(exchange));
         });
-        
-        updateTabBadge('proposals'); 
-
     } catch (error) {
-        proposalsDiv.innerHTML = `<p style="text-align: center; color: red;">Error de red al cargar propuestas.</p>`;
+        proposalsDiv.innerHTML = `<p style="color:red;">Error de red al cargar propuestas.</p>`;
     }
 }
 
 function createProposalCard(exchange) {
     const card = document.createElement('div');
-    card.style.border = '1px solid #007bff';
-    card.style.borderRadius = '8px';
-    card.style.padding = '15px';
-    card.style.marginBottom = '15px';
-    card.style.backgroundColor = '#fff';
-    
+    card.className = 'proposal-card';
     const isOwner = exchange.owner._id === currentUserId;
-    const statusColor = {
-        'PENDING': '#ffc107',
-        'ACCEPTED': '#007bff',
-        'REJECTED': '#dc3545',
-        'COMPLETED': '#28a745'
-    }[exchange.status] || 'gray';
-    
-    const actionText = isOwner ? 'RECIBIDA' : 'ENVIADA';
+    const actionText = isOwner ? 'Propuesta Recibida' : 'Propuesta Enviada';
     const otherParty = isOwner ? exchange.interestedParty.name : exchange.owner.name;
-    
-    const mainProductTitle = exchange.product.title; 
-    const offeredProductTitle = exchange.offeredProduct.title;
-    
-    const mainProductImageUrl = exchange.product.imageUrl && exchange.product.imageUrl.startsWith('/') ? `${BACKEND_URL}${exchange.product.imageUrl}` : 'https://via.placeholder.com/50x50?text=Prod';
-    const offeredProductImageUrl = exchange.offeredProduct.imageUrl && exchange.offeredProduct.imageUrl.startsWith('/') ? `${BACKEND_URL}${exchange.offeredProduct.imageUrl}` : 'https://via.placeholder.com/50x50?text=Offr';
-
 
     let actionButtons = '';
-    const interestedPartyId = exchange.interestedParty._id;
-    const productId = exchange.product._id;
-    const productName = exchange.product.title;
-
     if (isOwner && exchange.status === 'PENDING') {
         actionButtons = `
-            <button onclick="handleAcceptReject('accept', '${productId}', '${interestedPartyId}', '${productName}')" 
-                class="chat-action-btn accept-btn" style="width: 48%; margin-right: 4%;"
-            ><i class="fas fa-check"></i> Aceptar</button>
-            <button onclick="handleAcceptReject('reject', '${productId}', '${interestedPartyId}', '${productName}')" 
-                class="chat-action-btn reject-btn" style="width: 48%;"
-            ><i class="fas fa-times"></i> Rechazar</button>
+            <button class="btn-success" onclick="handleAcceptReject('accept', '${exchange.product._id}', '${exchange.interestedParty._id}', '${exchange.product.title}')">Aceptar</button>
+            <button class="btn-danger" onclick="handleAcceptReject('reject', '${exchange.product._id}', '${exchange.interestedParty._id}', '${exchange.product.title}')">Rechazar</button>
         `;
     }
 
     card.innerHTML = `
-        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 10px;">
-            <h4 style="margin: 0; color: #333;"><i class="fas fa-list-alt"></i> Propuesta ${actionText}</h4>
-            <span style="color: white; background-color: ${statusColor}; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">${exchange.status}</span>
-        </div>
-
-        <div style="margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; justify-content: center; background: #eee; padding: 10px; border-radius: 4px; text-align: center;">
-                <img src="${offeredProductImageUrl}" alt="Ofrecido" style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px;">
-                <span style="font-size: 14px; font-weight: bold; flex-shrink: 1;">${offeredProductTitle}</span> 🔄 <span style="font-size: 14px; font-weight: bold; flex-shrink: 1;">${mainProductTitle}</span>
-                <img src="${mainProductImageUrl}" alt="Principal" style="width: 40px; height: 40px; object-fit: cover; border-radius: 50%; margin-left: 10px;">
-            </div>
-        </div>
-        
-        <p style="font-size: 12px; margin-bottom: 15px;">Parte Involucrada: <strong>${otherParty}</strong></p>
-        
-        <div style="display: flex; justify-content: space-between;">
+        <h4>${actionText}</h4>
+        <p><strong>Tu producto:</strong> ${exchange.product.title}</p>
+        <p><strong>Producto ofrecido:</strong> ${exchange.offeredProduct.title}</p>
+        <p><small>De: ${otherParty}</small></p>
+        <p><strong>Estado:</strong> ${exchange.status}</p>
+        <div class="card-actions">
             ${actionButtons}
         </div>
     `;
     return card;
 }
 
-
-// --- 5. LÓGICA DE PUBLICACIÓN Y FINALIZACIÓN ---
-
-function openPostModal(isNewPost = true) {
-    closePostModal(); 
-    
-    const formContent = document.getElementById('post-form-content');
-    const modalTitle = document.getElementById('modal-title');
-
-    if (isNewPost) {
-        modalTitle.textContent = 'Nueva Publicación';
-        formContent.innerHTML = `
-            <input type="text" id="post-title" placeholder="Título del Producto" required>
-            <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-            <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-            <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-            <button onclick="submitNewPost()">Publicar Ahora</button>
-        `;
-    } 
-    
-    document.getElementById('post-modal').style.display = 'block';
-    document.getElementById('post-output').textContent = '';
-}
-
-function closePostModal() {
-    document.getElementById('post-modal').style.display = 'none';
-    
-    document.getElementById('post-form-content').innerHTML = `
-        <input type="text" id="post-title" placeholder="Título del Producto" required>
-        <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-        <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-        <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-        <button onclick="submitNewPost()">Publicar Ahora</button>
-    `;
-    document.getElementById('modal-title').textContent = 'Nueva Publicación';
-    document.getElementById('post-output').textContent = '';
-    document.getElementById('post-form-content').style.display = 'block';
-}
+// --- 5. LÓGICA DE PUBLICACIÓN Y CHAT ---
 
 async function submitNewPost() {
     const title = document.getElementById('post-title').value.trim();
     const description = document.getElementById('post-description').value.trim();
     const exchangeFor = document.getElementById('post-exchange-for').value.trim();
-    const imageFile = document.getElementById('post-image-file').files[0]; 
-    const output = document.getElementById('post-output');
-
+    const imageFiles = document.getElementById('post-image-file').files;
     if (!title || !description) {
-        output.textContent = 'El título y la descripción son obligatorios.';
-        output.style.color = 'red';
+        showToast('Título y descripción son obligatorios', 'error');
         return;
     }
-
-    output.textContent = 'Publicando...';
-    output.style.color = 'blue';
 
     const formData = new FormData();
     formData.append('title', title);
     formData.append('description', description);
     formData.append('exchangeFor', exchangeFor);
-    
-    if (imageFile) {
-        formData.append('image', imageFile); 
+    if (imageFiles.length > 0) {
+        for (let i = 0; i < imageFiles.length; i++) {
+            formData.append('images', imageFiles[i]);
+        }
     }
 
     try {
@@ -606,434 +577,213 @@ async function submitNewPost() {
             headers: { 'Authorization': `Bearer ${currentToken}` },
             body: formData
         });
-
         if (response.ok) {
-            output.textContent = '✅ Publicación creada con éxito.';
-            output.style.color = 'green';
-            setTimeout(() => {
-                closePostModal();
-                loadProductFeed(); 
-            }, 1500);
+            showToast('Publicación creada con éxito', 'success');
+            closePostModal();
+            loadProductFeed();
         } else {
             const data = await response.json();
-            output.textContent = `❌ Error al publicar: ${data.msg || 'Token inválido.'}`;
-            output.style.color = 'red';
+            showToast(data.msg || 'Error al publicar', 'error');
         }
     } catch (error) {
-        output.textContent = '❌ Error de red al publicar.';
-        output.style.color = 'red';
+        showToast('Error de red al publicar', 'error');
     }
 }
 
-
-
-
-
-
-// --- 6. CICLO DE VIDA DEL INTERCAMBIO Y CHAT ---
-
 function handleChatInitiation(recipientId, recipientName, productId) {
-    if (!socket || !socket.connected) {
-        showInAppMessage("El chat no está conectado. Presiona 'Reconectar Chat' y vuelve a intentarlo.", true);
-        return;
-    }
-    
     if (userOwnProducts.length === 0) {
-        showInAppMessage("No puedes iniciar un intercambio. ¡Primero publica un producto tuyo!", true);
+        showToast("Debes tener al menos un producto para proponer un intercambio.", 'warning');
         return;
     }
-
-    openPostModal(); 
+    openPostModal(false);
     document.getElementById('modal-title').textContent = 'Proponer Intercambio';
     const formContent = document.getElementById('post-form-content');
-    const ownerId = recipientId; 
-
     formContent.innerHTML = `
-        <h3 style="margin-top:0;">Intercambio por: ${productId.substring(0, 8)}...</h3>
         <p>Selecciona tu producto para ofrecer a ${recipientName}:</p>
-        <select id="offered-product-select" required style="margin-bottom: 15px;">
-            <option value="">-- Selecciona un Producto Tuyo --</option>
-            ${userOwnProducts.map(p => 
-                `<option value="${p._id}">[${p._id.substring(0, 4)}...] ${p.title} (Busca: ${p.exchangeFor})</option>`
-            ).join('')}
+        <select id="offered-product-select">
+            ${userOwnProducts.map(p => `<option value="${p._id}">${p.title}</option>`).join('')}
         </select>
-        <button onclick="submitProposal('${ownerId}', '${productId}', '${recipientName}')">Enviar Propuesta</button>
+        <button onclick="submitProposal('${recipientId}', '${productId}')">Enviar Propuesta</button>
     `;
 }
 
-async function submitProposal(ownerId, productId, recipientName) {
+async function submitProposal(ownerId, productId) {
     const offeredProductId = document.getElementById('offered-product-select').value;
-    const output = document.getElementById('post-output');
-
     if (!offeredProductId) {
-        output.textContent = 'Debes seleccionar un producto para ofrecer.';
-        output.style.color = 'red';
+        showToast('Debes seleccionar un producto para ofrecer', 'error');
         return;
     }
-
-    output.textContent = 'Enviando propuesta...';
-    output.style.color = 'blue';
 
     try {
         const response = await fetch(`${BACKEND_URL}/api/exchanges/propose`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentToken}` },
-            body: JSON.stringify({ productId: productId, ownerId: ownerId, offeredProductId: offeredProductId })
+            body: JSON.stringify({ productId, ownerId, offeredProductId })
         });
-
         const data = await response.json();
-
-        if (response.ok || response.status === 200) { 
-            currentExchangeState = data.exchange;
-            conversationProductId = productId; 
-            
+        if (response.ok) {
+            showToast('Propuesta enviada con éxito', 'success');
             closePostModal();
-            showInAppMessage(`Propuesta de intercambio enviada: ${currentExchangeState.status}`, false, 3000);
-            
+            loadProposalsFeed();
         } else {
-            output.textContent = `❌ Fallo al proponer: ${data.msg || 'Error desconocido'}`;
-            output.style.color = 'red';
+            showToast(data.msg || 'Error al enviar la propuesta', 'error');
         }
     } catch (error) {
-        output.textContent = '❌ Error de red al proponer intercambio.';
-        output.style.color = 'red';
+        showToast('Error de red al enviar la propuesta', 'error');
     }
 }
 
 async function handleAcceptReject(action, productId, interestedPartyId, productName) {
-    const endpoint = action === 'accept' ? 'accept' : 'reject';
-    
-    if (!window.confirm(`¿Confirma ${action.toUpperCase()} la propuesta para ${productName}?`)) return;
+    if (!confirm(`¿Estás seguro de que quieres ${action === 'accept' ? 'aceptar' : 'rechazar'} esta propuesta?`)) return;
 
     try {
-        const response = await fetch(`${BACKEND_URL}/api/exchanges/${productId}/${interestedPartyId}/${endpoint}`, {
+        const response = await fetch(`${BACKEND_URL}/api/exchanges/${productId}/${interestedPartyId}/${action}`, {
             method: 'PUT',
             headers: { 'Authorization': `Bearer ${currentToken}` }
         });
-        
         const data = await response.json();
-
         if (response.ok) {
-            showInAppMessage(`Propuesta ${action.toUpperCase()} con éxito. Estado: ${data.exchange.status}`, false);
-            selectRecipient(interestedPartyId, document.getElementById('recipient-name-display').textContent.split(' ')[0]);
-            loadProductFeed(); 
-            loadProposalsFeed(); 
-            switchTab('proposals'); 
+            showToast(`Propuesta ${action === 'accept' ? 'aceptada' : 'rechazada'}`, 'success');
+            loadProposalsFeed();
+            loadProductFeed();
         } else {
-            showInAppMessage(`Error: ${data.msg || 'Fallo en la operación.'}`, true);
+            showToast(data.msg || 'Error en la operación', 'error');
         }
     } catch (error) {
-        showInAppMessage('Error de red.', true);
+        showToast('Error de red', 'error');
     }
 }
-
-
-function renderChatActions(isOwner, productId, productName, exchangeStatus) {
-    const chatHeader = document.querySelector('.chat-header');
-    
-    let existingActions = chatHeader.querySelector('#chat-actions');
-    if (existingActions) { existingActions.remove(); }
-
-    const actionsDiv = document.createElement('div');
-    actionsDiv.id = 'chat-actions';
-    actionsDiv.style.marginLeft = '20px'; 
-    actionsDiv.style.display = 'flex'; 
-
-    const interestedPartyId = activeRecipientId;
-
-    if (isOwner) {
-        if (exchangeStatus === 'PENDING') {
-            const acceptBtn = document.createElement('button');
-            acceptBtn.textContent = 'Aceptar Propuesta';
-            acceptBtn.style.cssText = 'padding: 5px 10px; font-size: 12px; background-color: #007bff; margin-right: 10px;';
-            acceptBtn.onclick = () => handleAcceptReject('accept', productId, interestedPartyId, productName);
-            actionsDiv.appendChild(acceptBtn);
-
-            const rejectBtn = document.createElement('button');
-            rejectBtn.textContent = 'Rechazar';
-            rejectBtn.style.cssText = 'padding: 5px 10px; font-size: 12px; background-color: #dc3545;';
-            rejectBtn.onclick = () => handleAcceptReject('reject', productId, interestedPartyId, productName);
-            actionsDiv.appendChild(rejectBtn);
-        } else if (exchangeStatus === 'COMPLETED') {
-             actionsDiv.innerHTML = `<span style="color: green; font-weight: bold;">Intercambio Finalizado</span>`;
-        }
-    }
-
-    if (actionsDiv.children.length > 0) {
-        chatHeader.appendChild(actionsDiv);
-    }
-}
-
 
 async function selectRecipient(userId, userName) {
-    if (activeRecipientId === userId) return; 
-
-    document.querySelectorAll('#product-feed-list div[style*="border: 1px solid"]').forEach(el => el.style.border = '1px solid #ddd');
-    document.querySelectorAll('#connected-users-list li').forEach(li => li.classList.remove('selected'));
-    
     activeRecipientId = userId;
-    currentExchangeState = null; 
-    
-    const li = document.querySelector(`#user-${userId}`);
-    if (li) li.classList.add('selected');
+    document.querySelectorAll('#connected-users-list li').forEach(li => li.classList.remove('selected'));
+    document.querySelector(`#user-${userId}`).classList.add('selected');
 
-    // Clear unread messages for this recipient
     if (unreadMessagesCount[userId]) {
         delete unreadMessagesCount[userId];
         updateTabBadge('contacts');
     }
 
-    document.getElementById('recipient-name-display').textContent = userName;
-    document.getElementById('recipientId-display').textContent = userId.substring(0, 8) + '...';
+    const chatView = document.getElementById('chat-view');
+    document.querySelectorAll('.main-content .tab-content').forEach(c => c.style.display = 'none');
+    chatView.style.display = 'flex';
+    if (window.innerWidth <= 768) {
+        chatView.classList.add('open');
+    }
 
+    document.getElementById('recipient-name-display').textContent = userName;
     document.getElementById('message-input').disabled = false;
     document.querySelector('.send-button').disabled = false;
-    document.getElementById('message-input').focus();
-    
-    document.getElementById('chat-messages').innerHTML = `<p style="text-align: center; color: #999;">Cargando historial con ${userName}...</p>`;
-    
-    renderChatActions(false, null, null); 
+    const chatMessages = document.getElementById('chat-messages');
+    chatMessages.innerHTML = `<p>Cargando historial con ${userName}...</p>`;
 
     try {
         const response = await fetch(`${BACKEND_URL}/api/chat/history/${userId}`, {
-            method: 'GET',
             headers: { 'Authorization': `Bearer ${currentToken}` }
         });
-
         const history = await response.json();
-        const chatLogDiv = document.getElementById('chat-messages');
-        chatLogDiv.innerHTML = ''; 
-        
-        let productRef = null;
-        let productName = userName;
-
-        const productMsg = history.find(msg => msg.productId);
-        if (productMsg) productRef = productMsg.productId;
-        else if (conversationProductId) productRef = conversationProductId;
-        
-        // 2. Si hay referencia de producto, obtener el estado del intercambio
-        if (productRef) {
-             const productResponse = await fetch(`${BACKEND_URL}/api/products`);
-             const allProducts = await productResponse.json();
-             const product = allProducts.find(p => p._id === productRef);
-             
-             if (product) {
-                 productName = product.title;
-                 const isOwner = product.owner._id === currentUserId;
-                 const interestedPartyId = isOwner ? userId : currentUserId; 
-                 
-                 // Obtener estado del intercambio
-                 const exchangeStatusResponse = await fetch(`${BACKEND_URL}/api/exchanges/status/${productRef}/${interestedPartyId}`, {
-                    headers: { 'Authorization': `Bearer ${currentToken}` }
-                 });
-                 const exchangeData = await exchangeStatusResponse.json();
-                 
-                 if (exchangeData.exchange) {
-                    currentExchangeState = exchangeData.exchange;
-                    renderChatActions(isOwner, productRef, productName, currentExchangeState.status);
-                 }
-             }
-        }
-        
-        // 3. Renderizar mensajes
-        if (response.ok && history.length > 0) {
-            history.forEach(msg => {
-                addChatMessage(msg.message, msg.senderId, msg.timestamp, msg.productId); 
-            });
-        } else if (response.ok && history.length === 0) {
-            if (conversationProductId) {
-                 addChatMessage('¡Inicia la conversación para el intercambio!', currentUserId, new Date(), conversationProductId);
-            } else {
-                 chatLogDiv.innerHTML = `<p style="text-align: center; color: #999;">¡Comiencen su conversación!</p>`;
-            }
+        chatMessages.innerHTML = '';
+        if (response.ok) {
+            history.forEach(msg => addChatMessage(msg.message, msg.senderId, msg.timestamp));
         } else {
-            chatLogDiv.innerHTML = `<p style="text-align: center; color: red;">Error al cargar: ${history.msg || 'Token inválido o expirado.'}</p>`;
+            chatMessages.innerHTML = `<p style="color:red;">Error al cargar el historial.</p>`;
         }
     } catch (error) {
-        document.getElementById('chat-messages').innerHTML = `<p style="text-align: center; color: red;">Error de red al cargar historial.</p>`;
+        chatMessages.innerHTML = `<p style="color:red;">Error de red al cargar el historial.</p>`;
     }
 }
 
-function addChatMessage(message, senderId, timestamp, productId) {
-    const chatLogDiv = document.getElementById('chat-messages');
-    
-    if (senderId !== currentUserId && senderId !== activeRecipientId) {
-        const senderName = localConnectedUsers[senderId] ? localConnectedUsers[senderId].name : 'Desconocido';
-        showNotification(senderName, message); 
-
-        unreadMessagesCount[senderId] = (unreadMessagesCount[senderId] || 0) + 1;
-        const badge = document.getElementById(`unread-badge-${senderId}`);
-        if (badge) {
-            badge.textContent = unreadMessagesCount[senderId];
-            badge.style.display = 'inline-block';
-        }
-        updateTabBadge('contacts');
-
-        return; 
-    }
-
-    const isSent = (senderId === currentUserId);
-    const isSystem = (senderId === 'SYSTEM');
+function addChatMessage(message, senderId, timestamp) {
+    const chatMessages = document.getElementById('chat-messages');
+    const isSent = senderId === currentUserId;
     const messageDiv = document.createElement('div');
-    
-    if (isSystem) {
-        messageDiv.className = 'system-message';
-        messageDiv.style.cssText = `
-            text-align: center;
-            padding: 8px 16px;
-            margin: 10px 0;
-            background: rgba(0, 123, 255, 0.1);
-            border: 1px solid rgba(0, 123, 255, 0.2);
-            border-radius: 20px;
-            color: #007bff;
-            font-size: 13px;
-            font-style: italic;
-        `;
-        messageDiv.textContent = message;
-    } else {
-        messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
-        
-        const timeStr = timestamp ? new Date(timestamp).toLocaleTimeString('es-ES', { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        }) : new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        
-        const senderName = isSent ? 'Tú' : (localConnectedUsers[senderId] ? localConnectedUsers[senderId].name : 'Desconocido');
-        
-        let referenceHTML = '';
-        if (productId) {
-            const productRef = productId.substring(0, 8);
-            referenceHTML = `
-                <div style="background: rgba(255,255,255,0.2); border-left: 3px solid #ffc107; padding: 5px; margin-bottom: 8px; font-size: 11px; border-radius: 4px; color: #333;">
-                    Referencia a Publicación: <strong>${productRef}...</strong>
-                </div>
-            `;
-        }
+    messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+    const time = new Date(timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-        messageDiv.innerHTML = `
-            ${referenceHTML}
-            <div style="margin-bottom: 4px;">${message}</div>
-            <span class="message-info">
-                ${isSent ? '<i class="fas fa-paper-plane"></i>' : '<i class="fas fa-envelope-open-text"></i>'} ${senderName} • ${timeStr}
-            </span>
-        `;
-    }
-    
-    if (chatLogDiv.innerHTML.includes('Selecciona un usuario') || chatLogDiv.innerHTML.includes('Cargando historial')) {
-        chatLogDiv.innerHTML = ''; 
-    }
-
-    chatLogDiv.appendChild(messageDiv);
-    
-    chatLogDiv.scrollTo({
-        top: chatLogDiv.scrollHeight,
-        behavior: 'smooth'
-    });
+    messageDiv.innerHTML = `
+        <div>${message}</div>
+        <div class="message-info">${time}</div>
+    `;
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function connectChat() {
-    if (!currentToken) { showInAppMessage('Debes iniciar sesión para conectar el chat.', true); return; }
-    if (socket && socket.connected) { showInAppMessage('Ya estás conectado.', false); return; }
-    
-    updateSocketStatus(false);
-    socket = io(BACKEND_URL, { query: { token: currentToken }, transports: ['websocket'] });
+    if (!currentToken) return;
+    socket = io(BACKEND_URL, { query: { token: currentToken } });
 
-    socket.on('connect', () => { updateSocketStatus(true); addChatMessage('Conexión con el servidor de chat establecida.', 'SYSTEM', new Date()); });
-    socket.on('disconnect', () => { updateSocketStatus(false); addChatMessage('Desconectado del servidor de chat.', 'SYSTEM', new Date()); });
+    socket.on('connect', () => updateSocketStatus(true));
+    socket.on('disconnect', () => updateSocketStatus(false));
     socket.on('connect_error', (err) => {
-        updateSocketStatus(false);
-        if (err.message.includes('token')) { showInAppMessage(`❌ Token expirado o inválido. Cerrando sesión.`, true); return logout(); }
-        showInAppMessage(`❌ Error de conexión: ${err.message}.`, true);
+        if (err.message.includes('token')) logout();
     });
-    
-    socket.on('usersList', (users) => { users.forEach(user => localConnectedUsers[user.id] = user); renderUsersList(); });
-    socket.on('userConnected', (user) => { localConnectedUsers[user.id] = user; renderUsersList(); addChatMessage(`${user.name} se ha unido al chat.`, 'SYSTEM', new Date()); });
+
+    socket.on('usersList', (users) => {
+        users.forEach(user => localConnectedUsers[user.id] = user);
+        renderUsersList();
+    });
+
+    socket.on('userConnected', (user) => {
+        localConnectedUsers[user.id] = user;
+        renderUsersList();
+        showToast(`${user.name} se ha conectado.`);
+    });
+
     socket.on('userDisconnected', (userId) => {
-        const userName = localConnectedUsers[userId] ? localConnectedUsers[userId].name : 'Un usuario';
+        const userName = localConnectedUsers[userId]?.name || 'Alguien';
         delete localConnectedUsers[userId];
-        renderUsersList(); 
-        addChatMessage(`${userName} se ha desconectado.`, 'SYSTEM', new Date());
-
-        if (userId === activeRecipientId) { 
-            activeRecipientId = null;
-            document.getElementById('recipient-name-display').textContent = 'Usuario Desconectado';
-            document.getElementById('message-input').disabled = true;
-            document.querySelector('.send-button').disabled = true;
-        }
+        renderUsersList();
+        showToast(`${userName} se ha desconectado.`);
     });
 
-    socket.on('newMessage', (data) => { 
+    socket.on('newMessage', (data) => {
         if (data.senderId === activeRecipientId) {
-            addChatMessage(data.message, data.senderId, data.timestamp, data.productId);
-            if (unreadMessagesCount[data.senderId]) { delete unreadMessagesCount[data.senderId]; updateTabBadge('contacts'); }
+            addChatMessage(data.message, data.senderId, data.timestamp);
         } else if (data.senderId !== currentUserId) {
-            addChatMessage(data.message, data.senderId, data.timestamp, data.productId); 
-        }
-        
-        if (data.productId) {
-            loadProposalsFeed();
+            unreadMessagesCount[data.senderId] = (unreadMessagesCount[data.senderId] || 0) + 1;
+            updateTabBadge('contacts');
+            showNotification(localConnectedUsers[data.senderId]?.name, data.message);
         }
     });
 }
 
 function sendMessage() {
-    if (!socket || !socket.connected || !activeRecipientId) { showInAppMessage('No estás conectado o no has seleccionado un destinatario.', true); return; }
-
-    const recipientId = activeRecipientId;
     const messageInput = document.getElementById('message-input');
     const message = messageInput.value.trim();
-    
-    if (!message) return;
+    if (!message || !activeRecipientId) return;
 
-    const messageData = { 
-        recipientId: recipientId, 
-        message: message,
-        productId: conversationProductId 
-    };
-    
+    const messageData = { recipientId: activeRecipientId, message };
     socket.emit('sendMessage', messageData);
-    
-    addChatMessage(message, currentUserId, new Date().toISOString(), conversationProductId);
-    
-    if (conversationProductId) {
-        conversationProductId = null; 
-    }
-    
-    messageInput.value = ''; 
-    messageInput.focus();
+    addChatMessage(message, currentUserId, new Date().toISOString());
+    messageInput.value = '';
 }
 
-// --- 7. SETUP INICIAL ---
+// --- 6. SETUP INICIAL ---
 
-function setupMessageInputListener() {
-    const messageInput = document.getElementById('message-input');
-    messageInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && !messageInput.disabled) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-}
-
-document.addEventListener('DOMContentLoaded', () => { 
+document.addEventListener('DOMContentLoaded', () => {
     if (currentToken) {
         try {
             const payload = JSON.parse(atob(currentToken.split('.')[1]));
             currentUserId = payload.user.id;
             document.getElementById('current-user-id').textContent = currentUserId.substring(0, 8) + '...';
-
             showInterface('chat-interface');
-            startTokenRefreshLoop(); 
-            requestNotificationPermission(); 
-            loadProductFeed(); 
-            connectChat(); 
+            startTokenRefreshLoop();
+            requestNotificationPermission();
+            switchTab('feed');
+            connectChat();
         } catch (e) {
-            localStorage.removeItem('jwtToken');
-            showInterface('auth-interface');
+            logout();
         }
     } else {
         showInterface('auth-interface');
     }
-    setupMessageInputListener();
-    switchTab('feed');
+
+    document.getElementById('message-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    document.getElementById('back-to-list').addEventListener('click', () => {
+        document.getElementById('chat-view').classList.remove('open');
+        activeRecipientId = null;
+    });
 });

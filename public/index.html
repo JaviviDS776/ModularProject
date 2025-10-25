@@ -6,594 +6,105 @@
     <title>PWA Chat Intercambios - Code-Partner</title>
     <meta name="theme-color" content="#007bff"/>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/qrcode.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* ========================================================================= */
-        /* 1. Variables y Bases Mejoradas (Refactoring)                              */
-        /* ========================================================================= */
-        :root {
-            /* Paleta de Colores */
-            --primary-color: #007bff; /* Azul vibrante para acciones principales */
-            --primary-dark: #0056b3;  /* Azul oscuro para hover */
-            --secondary-color: #4CAF50; /* Verde para acciones secundarias/éxito */
-            --accent-color: #ff9800; /* Naranja para advertencias o énfasis */
-            --bg-light: #eef1f5; /* Fondo general, más sutil que el blanco */
-            --bg-panel: #ffffff; /* Fondo para paneles internos */
-            --text-dark: #212529; /* Texto principal oscuro */
-            --border-color: #e0e6ed; /* Borde sutil */
-            
-            /* Sombras Elevación */
-            --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
-            --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.08);
-        }
-
-        body {
-            /* Usar una fuente de sistema moderna para mejor rendimiento */
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; 
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: var(--bg-light); 
-            color: var(--text-dark);
-        }
-
-        h1, h2, h3, h4 { 
-            color: var(--text-dark); 
-            font-weight: 600; /* Ligeramente más negrita */
-            margin-top: 0; 
-        }
-
-        /* Contenedor Principal */
-        .app-container { 
-            width: 95%; /* Ligeramente más ancho en desktop */
-            max-width: 1200px; /* Incrementamos el tamaño máximo */
-            height: 95vh; /* Incrementamos la altura */
-            background: var(--bg-panel); 
-            border-radius: 12px; /* Bordes más suaves */
-            box-shadow: var(--shadow-medium); 
-            display: flex; 
-            overflow: hidden; 
-        }
-
-        /* ========================================================================= */
-        /* 2. Estilos de Formulario y Botones Mejorados                              */
-        /* ========================================================================= */
-        #auth-interface { 
-            width: 100%; 
-            max-width: 400px; 
-            padding: 40px; 
-            margin: auto; 
-            background-color: var(--bg-panel);
-            border-radius: 12px;
-        }
-
-        input:not([type="file"]), textarea, button { 
-            padding: 14px; /* Un poco más de padding */
-            margin-bottom: 15px; 
-            width: 100%; 
-            box-sizing: border-box; 
-            border-radius: 8px; /* Bordes más redondeados */
-            border: 1px solid var(--border-color); 
-            font-size: 16px; 
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        input:focus, textarea:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15); /* Añadir un ring de enfoque */
-            outline: none;
-        }
-
-        button { 
-            cursor: pointer; 
-            background-color: var(--primary-color); 
-            color: white; 
-            border: none; 
-            font-weight: 600;
-            position: relative; 
-            overflow: hidden; 
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        button:hover:not(:disabled) { 
-            background-color: var(--primary-dark); 
-            transform: translateY(-2px); 
-            box-shadow: 0 6px 15px rgba(0,0,0,0.15); 
-        }
-        button:active:not(:disabled) { 
-            transform: translateY(0);
-        }
-        button:disabled { 
-            opacity: 0.6; 
-            cursor: not-allowed; 
-            transform: none !important; 
-            box-shadow: none;
-        }
-
-        /* Botón de registro/secundario */
-        #auth-interface button:last-of-type {
-            background-color: var(--secondary-color);
-        }
-        #auth-interface button:last-of-type:hover:not(:disabled) {
-            background-color: #388e3c; /* Tono más oscuro de verde */
-        }
-
-        /* ========================================================================= */
-        /* 3. Layout del Chat y Paneles                                              */
-        /* ========================================================================= */
-        #chat-interface { 
-            width: 100%; 
-            display: flex; 
-        }
-        .feed-panel { 
-            flex: 0 0 320px; /* Panel lateral un poco más ancho */
-            background-color: var(--bg-panel); 
-            border-right: 1px solid var(--border-color); 
-            padding: 0; 
-            display: flex; 
-            flex-direction: column; 
-        }
-
-        .user-list-header { 
-            padding: 15px 20px; 
-            border-bottom: 1px solid var(--border-color); 
-            background-color: var(--bg-light);
-        }
-
-        /* Botón de Logout */
-        .feed-panel > button:last-child {
-            background-color: #dc3545;
-            border-radius: 0;
-            margin-top: auto; /* Empuja el botón hacia abajo */
-        }
-        .feed-panel > button:last-child:hover {
-            background-color: #c82333;
-        }
-
-        /* ========================================================================= */
-        /* 4. Pestañas y Listas (Feed/Contactos)                                     */
-        /* ========================================================================= */
-
-        /* Estilos de Pestañas */
-        .tabs { 
-            display: flex; 
-            border-bottom: 1px solid var(--border-color); 
-            background-color: var(--bg-panel); 
-            flex-shrink: 0; /* Asegura que no se encoja */
-        }
-        .tab-button { 
-            flex: 1; 
-            padding: 15px 10px; 
-            cursor: pointer; 
-            text-align: center; 
-            border: none; 
-            background: transparent; 
-            font-weight: 600; 
-            color: #6c757d; 
-            transition: all 0.2s; 
-            border-bottom: 3px solid transparent; 
-        }
-        .tab-button:hover:not(.active) {
-            background-color: var(--bg-light);
-        }
-        .tab-button.active { 
-            color: var(--primary-color); 
-            border-bottom: 3px solid var(--primary-color); 
-            background-color: var(--bg-light); 
-        }
-
-        /* Contenedores de Contenido de Pestañas */
-        .tab-content { 
-            flex-grow: 1; 
-            overflow-y: auto; 
-            padding: 15px; 
-            display: none; 
-        }
-        .tab-content.active { display: block; }
-
-        /* Lista de Usuarios (Contactos) y Feed */
-        #connected-users-list, #product-feed-list, #proposals-list { 
-            list-style: none; 
-            padding: 0; 
-            margin: 0; 
-        }
-        #connected-users-list li { 
-            padding: 12px 10px; 
-            cursor: pointer; 
-            border-radius: 6px;
-            margin-bottom: 4px;
-            transition: background-color 0.2s, box-shadow 0.2s; 
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        #connected-users-list li:hover, #connected-users-list li.selected { 
-            background-color: #e3f2fd; /* Azul muy claro */
-            box-shadow: var(--shadow-subtle);
-        }
-
-        /* ========================================================================= */
-        /* 5. Panel de Chat y Mensajes (Chat Bubbles)                                */
-        /* ========================================================================= */
-        .chat-panel { 
-            flex: 1; 
-            display: flex; 
-            flex-direction: column; 
-            background-color: var(--bg-panel);
-        }
-        .chat-header { 
-            background-color: var(--bg-panel); 
-            padding: 18px 25px; 
-            border-bottom: 1px solid var(--border-color); 
-            box-shadow: var(--shadow-subtle); 
-            z-index: 10;
-        }
-
-        /* Contenedor de Mensajes */
-        #chat-messages { 
-            flex-grow: 1; 
-            padding: 20px 25px; 
-            overflow-y: auto; 
-            background-color: var(--bg-light); 
-            display: flex; 
-            flex-direction: column; 
-        }
-
-        /* Mensajes - Estilo Globo Refinado */
-        .message { 
-            margin-bottom: 12px; 
-            padding: 12px 18px; 
-            border-radius: 18px; 
-            max-width: 70%; 
-            line-height: 1.5;
-            font-size: 15px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            position: relative; 
-            word-wrap: break-word;
-            animation: messageSlideIn 0.3s ease-out;
-        }
-        .message.sent { 
-            align-self: flex-end; 
-            /* Fondo con gradiente más sutil */
-            background: linear-gradient(145deg, var(--primary-color), #0a84ff); 
-            color: white; 
-            border-bottom-right-radius: 4px; 
-        }
-        .message.received { 
-            align-self: flex-start; 
-            background: var(--bg-panel); 
-            color: var(--text-dark); 
-            border: 1px solid #e0e0e0; 
-            border-bottom-left-radius: 4px; 
-            border-left: 3px solid var(--secondary-color); 
-        }
-        .message-info { 
-            font-size: 10px; 
-            opacity: 0.9; 
-            margin-top: 4px; 
-            display: block;
-            font-weight: 500;
-        }
-        .message.sent .message-info { color: rgba(255,255,255,0.8); }
-        .message.received .message-info { color: #666; }
-
-        @keyframes messageSlideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Sistema de escritura (Typing Indicator) */
-        .typing-indicator { 
-            display: flex; 
-            align-items: center; 
-            padding: 8px 16px; 
-            margin: 10px 0; 
-            background: var(--bg-panel); 
-            border-radius: 20px; 
-            max-width: 100px;
-            box-shadow: var(--shadow-subtle);
-            align-self: flex-start;
-        }
-        .typing-dots { display: flex; }
-        .typing-dots span { 
-            height: 8px; 
-            width: 8px; 
-            background: var(--primary-color); /* Color primario para los puntos */
-            border-radius: 50%; 
-            display: inline-block; 
-            margin-right: 4px;
-            animation: typingPulse 1.4s infinite ease-in-out;
-        }
-        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-dots span:nth-child(3) { animation-delay: 0.4s; margin-right: 0; }
-
-        @keyframes typingPulse {
-            0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-            40% { opacity: 1; transform: scale(1); }
-        }
-
-        /* Input del Chat */
-        .chat-input-area {
-            padding: 15px 25px;
-            background: var(--bg-panel);
-            border-top: 1px solid var(--border-color);
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.03); 
-            gap: 10px;
-        }
-        .message-input-field {
-            flex-grow: 1;
-            margin-bottom: 0;
-            padding: 14px;
-            border-radius: 25px; 
-            background-color: var(--bg-light);
-        }
-        .send-button {
-            flex-shrink: 0;
-            width: auto;
-            padding: 12px 25px;
-            border-radius: 25px;
-            background: linear-gradient(45deg, var(--primary-color), #0a84ff);
-        }
-        .send-button:disabled {
-            background: #ccc;
-            box-shadow: none;
-        }
-
-
-        /* ========================================================================= */
-        /* 6. Modal y Toast Notifications                                            */
-        /* ========================================================================= */
-        .modal { position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); display: none; }
-        .modal-content { 
-            background-color: var(--bg-panel); 
-            margin: 10% auto; 
-            padding: 30px; 
-            border: none; 
-            width: 90%; 
-            max-width: 450px; 
-            border-radius: 12px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            position: relative;
-            animation: modalFadeIn 0.3s ease-out;
-        }
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .close-btn { 
-            color: #aaa; 
-            float: right; 
-            font-size: 32px; 
-            font-weight: 300;
-            line-height: 1;
-            position: absolute;
-            top: 10px;
-            right: 20px;
-        }
-
-        /* Toast Notifications */
-        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 10000; }
-        .toast { 
-            background: white; 
-            border-radius: 8px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
-            margin-bottom: 12px; 
-            padding: 16px 20px; 
-            min-width: 300px; 
-            max-width: 400px; 
-            transform: translateX(400px); 
-            opacity: 0; 
-            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55); /* Transición elástica */
-            position: relative;
-            overflow: hidden;
-        }
-        .toast.show { transform: translateX(0); opacity: 1; }
-        .toast.success { border-left: 5px solid #28a745; }
-        .toast.error { border-left: 5px solid #dc3545; }
-        .toast.info { border-left: 5px solid #007bff; }
-        .toast.warning { border-left: 5px solid #ffc107; }
-        .toast-header { margin-bottom: 8px; }
-        .toast-title { font-weight: bold; margin: 0; font-size: 16px; }
-        .toast.success .toast-title { color: #28a745; }
-        .toast.error .toast-title { color: #dc3545; }
-        .toast.info .toast-title { color: #007bff; }
-        .toast.warning .toast-title { color: #856404; }
-        .toast-close { 
-            background: none; 
-            border: none; 
-            font-size: 20px; 
-            cursor: pointer; 
-            color: #999; 
-            line-height: 1;
-        }
-        .toast-body { color: #666; font-size: 14px; line-height: 1.4; }
-        .toast-progress { 
-            position: absolute; 
-            bottom: 0; 
-            left: 0; 
-            height: 3px; 
-            background: currentColor; 
-            opacity: 0.3; 
-            transition: width linear; 
-        }
-
-
-        /* ========================================================================= */
-        /* 7. Loading States y Utilidades                                            */
-        /* ========================================================================= */
-        .loading { position: relative; }
-        .loading::after { content: ''; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 2px solid #f3f3f3; border-top: 2px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        /* ========================================================================= */
-        /* 8. Media Queries para Responsividad (Dispositivos Móviles)                */
-        /* ========================================================================= */
-
-        @media (max-width: 768px) {
-            
-            body {
-                align-items: flex-start; 
-                min-height: auto;
-            }
-
-            .app-container { 
-                width: 100%; 
-                height: 100vh; 
-                border-radius: 0;
-                box-shadow: none;
-            }
-
-            /* Ajustar el diseño a columna y controlar el panel */
-            #chat-interface {
-                flex-direction: column;
-            }
-
-            .feed-panel { 
-                flex: 1 1 auto; /* Permite que el feed ocupe el espacio */
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid var(--border-color);
-                /* La altura debe ser manejada por JavaScript para ocultar/mostrar 
-                el chat-panel. Por defecto, ocupará el 100% si el chat está inactivo.
-                */
-            }
-
-            .chat-panel { 
-                width: 100%;
-                height: 100%;
-                position: absolute; 
-                top: 0;
-                left: 0;
-                z-index: 50; /* Superponer al feed */
-                transform: translateX(100%); /* Oculto fuera de la pantalla */
-                transition: transform 0.3s ease-in-out;
-            }
-            
-            /* Clase que JS debe añadir al app-container cuando se inicia un chat */
-            .app-container.chat-active .feed-panel {
-                display: none;
-            }
-            .app-container.chat-active .chat-panel {
-                transform: translateX(0);
-                display: flex; /* Asegurar que se muestre si la transformación es 0 */
-            }
-
-            .chat-header {
-                padding: 15px 20px;
-            }
-
-            .message {
-                max-width: 85%; 
-            }
-
-            .chat-input-area {
-                padding: 15px 20px;
-            }
-            
-            /* El modal de post se muestra más grande */
-            .modal-content {
-                margin: 5% auto;
-                width: 95%;
-                max-width: none;
-            }
-        }
-    </style>
 </head>
 <body>
-    <div class="app-container">
-        
-        <section id="auth-interface" style="display: none;">
-            <h1>Iniciar Sesión / Registro 💬</h1>
-            <p id="auth-output" style="text-align: center; font-size: 14px; margin-bottom: 20px;">Esperando acción...</p>
-            <input type="text" id="name" placeholder="Tu Nombre (Solo Registro)">
-            <input type="email" id="email" placeholder="Email">
-            <input type="password" id="password" placeholder="Contraseña">
-            <button onclick="loginUser()">Iniciar Sesión</button>
-            <button onclick="registerUser()" style="background-color: var(--secondary-color);">Registrarse</button>
-        </section>
+    <div id="app-container">
 
-        <section id="chat-interface" style="display: none;">
-            
-            <div class="feed-panel"> 
-                <div class="user-list-header">
-                    <p style="font-size: 12px; margin: 5px 0 0;">Tu ID: <strong id="current-user-id">Cargando...</strong></p>
-                    <div id="socket-status" style="font-size: 12px; margin-top: 5px;"></div>
-                    <button onclick="connectChat()" style="width: auto; padding: 5px 10px; font-size: 12px; margin-top: 10px;">Reconectar Chat</button>
-                </div>
-                
-                <div class="tabs">
-                    <button class="tab-button active" onclick="switchTab('feed')">Feed</button>
-                    <button class="tab-button" onclick="switchTab('proposals')">Propuestas</button> 
-                    <button class="tab-button" onclick="switchTab('contacts')">Contactos</button>
-                </div>
-                
-                <div id="feed-tab-content" class="tab-content active">
-                    <h2 style="font-size: 1.5em; margin-bottom: 10px;">Intercambios</h2>
-                    <div id="product-feed-list">
-                        <p style="text-align: center; color: #999; padding-top: 20px;">Cargando productos...</p>
-                    </div>
-                    <button onclick="openPostModal(true)" style="background-color: #28a745;">+ Publicar Intercambio</button>
-                </div>
-                
-                <div id="proposals-tab-content" class="tab-content">
-                    <h2 style="font-size: 1.5em; margin-bottom: 10px;">Mis Propuestas</h2>
-                    <div id="proposals-list">
-                        <p style="text-align: center; color: #999;">Cargando propuestas...</p>
-                    </div>
-                </div>
-                
-                <div id="contacts-tab-content" class="tab-content">
-                    <h2 style="font-size: 1.5em; margin-bottom: 10px;">Usuarios Online</h2>
-                    <ul id="connected-users-list">
-                        <p style="color: #999;">Cargando contactos...</p>
-                    </ul>
-                </div>
-                
-                <button onclick="logout()" style="background-color: #dc3545; border-radius: 0;">Cerrar Sesión</button>
-            </div>
-
-            <div class="chat-panel">
-                <div class="chat-header">
-                    <h3 id="recipient-name-display">Selecciona un Contacto</h3>
-                    <div style="display: flex; align-items: center;">
-                        <div style="font-size: 12px; margin-right: 15px;">ID: <span id="recipientId-display">N/A</span></div>
-                        <div id="chat-actions"></div>
-                    </div>
-                </div>
-                
-                <div id="chat-messages">
-                    <p style="text-align: center; color: #999;">Selecciona un usuario o inicia un chat desde el Feed.</p>
-                </div>
-
-                <div class="chat-input-area" style="display: flex; align-items: center; padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #ddd; gap: 10px;">
-                    <input type="text" id="message-input" placeholder="Escribe tu mensaje..." disabled class="message-input-field">
-                    <button onclick="sendMessage()" class="send-button" disabled style="padding: 12px 20px; background: linear-gradient(45deg, #007bff, #0056b3); color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px;"><i class="fas fa-paper-plane"></i> Enviar</button>
-                </div>
-            </div>
-        </section>
-
-        <div id="post-modal" class="modal">
-            <div class="modal-content">
-                <span class="close-btn" onclick="closePostModal()">&times;</span>
-                <h2><span id="modal-title">Nueva Publicación</span></h2>
-                
-                <div id="post-form-content">
-                    <input type="text" id="post-title" placeholder="Título del Producto" required>
-                    <textarea id="post-description" placeholder="Descripción detallada del producto..." rows="4"></textarea>
-                    
-                    <input type="file" id="post-image-file" name="image" accept="image/*" style="margin-top: 10px;">
-                    
-                    <input type="text" id="post-exchange-for" placeholder="Busco a cambio de este producto (ej: libros, servicios)">
-                    <button onclick="submitNewPost()">Publicar Ahora</button>
-                </div>
-                
-                <p id="post-output" style="text-align: center; font-size: 14px; margin-top: 10px;"></p>
+        <!-- Auth Interface -->
+        <div id="auth-interface" class="auth-container">
+            <div class="auth-card">
+                <h1>Bienvenido a Intercambios</h1>
+                <p>Inicia sesión o regístrate para empezar.</p>
+                <div id="auth-output" class="auth-output"></div>
+                <input type="text" id="name" placeholder="Nombre (solo para registro)">
+                <input type="email" id="email" placeholder="Correo Electrónico">
+                <input type="password" id="password" placeholder="Contraseña">
+                <button onclick="loginUser()">Iniciar Sesión</button>
+                <button onclick="registerUser()" class="btn-secondary">Registrarse</button>
             </div>
         </div>
 
+        <!-- Main App Interface -->
+        <div id="chat-interface" style="display: none;">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h3>Intercambios</h3>
+                    <div class="user-info">
+                        <p>ID: <strong id="current-user-id">Cargando...</strong></p>
+                        <div id="socket-status"></div>
+                    </div>
+                </div>
+                <div class="tabs">
+                    <button class="tab-button active" onclick="switchTab('feed')"><i class="fas fa-rss"></i> Feed</button>
+                    <button class="tab-button" onclick="switchTab('proposals')"><i class="fas fa-exchange-alt"></i> Propuestas</button>
+                    <button class="tab-button" onclick="switchTab('contacts')"><i class="fas fa-users"></i> Contactos</button>
+                </div>
+                <div class="sidebar-content">
+                    <div id="contacts-tab-content" class="tab-content">
+                        <ul id="connected-users-list"></ul>
+                    </div>
+                </div>
+                <div class="sidebar-footer">
+                    <button onclick="logout()" class="btn-logout"><i class="fas fa-sign-out-alt"></i> Cerrar Sesión</button>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div id="feed-tab-content" class="tab-content active">
+                    <header class="main-header">
+                        <h2>Feed de Intercambios</h2>
+                        <button onclick="openPostModal(true)" class="btn-primary"><i class="fas fa-plus"></i> Publicar</button>
+                    </header>
+                    <div id="product-feed-list" class="content-area"></div>
+                </div>
+
+                <div id="proposals-tab-content" class="tab-content">
+                    <header class="main-header">
+                        <h2>Mis Propuestas</h2>
+                    </header>
+                    <div id="proposals-list" class="content-area"></div>
+                </div>
+
+                <div id="chat-view" class="chat-view">
+                    <header class="chat-header">
+                        <button id="back-to-list" class="btn-icon"><i class="fas fa-arrow-left"></i></button>
+                        <h3 id="recipient-name-display">Selecciona un chat</h3>
+                        <div id="recipientId-display"></div>
+                    </header>
+                    <div id="chat-messages" class="chat-messages">
+                         <p class="empty-chat-message">Selecciona un usuario de la lista de contactos para comenzar a chatear.</p>
+                    </div>
+                    <div class="chat-input-area">
+                        <input type="text" id="message-input" placeholder="Escribe un mensaje..." disabled>
+                        <button onclick="sendMessage()" class="send-button" disabled><i class="fas fa-paper-plane"></i></button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal for new post -->
+    <div id="post-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closePostModal()">&times;</span>
+            <h2 id="modal-title">Nueva Publicación</h2>
+            <div id="post-form-content">
+                <!-- JS will populate this -->
+            </div>
+            <p id="post-output"></p>
+        </div>
+    </div>
+
+    <!-- Modal for product details -->
+    <div id="product-details-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeProductDetailsModal()">&times;</span>
+            <div id="product-details-content">
+                <!-- JS will populate this -->
+            </div>
+        </div>
     </div>
 
     <!-- Toast Notifications Container -->

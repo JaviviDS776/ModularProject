@@ -6,7 +6,7 @@ const ProductSchema = new mongoose.Schema({
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true, trim: true },
     exchangeFor: { type: String, required: false, trim: true },
-    imageUrl: { type: String, required: false, default: 'placeholder.jpg' },
+    imageUrls: [{ type: String, required: false }],
     isActive: { type: Boolean, default: true },
     exchangeStatus: {
         type: String,
